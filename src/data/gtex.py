@@ -1,7 +1,6 @@
 import pandas as pd
 import statsmodels.api as sm
 import os
-import mixtures
 
 # Main directories
 main_dir = "/projects/gtex"
@@ -186,21 +185,3 @@ def get_gene_df(expression_df, gene, interesting_tissues):
     gene_df = gene_df.dropna()
     return gene_df
 
-def fit_dpgmm_and_get_memberships(expression_df, genes, tissues,
-                                  samples=None, consolidate=True, 
-                                  *args, **kwargs):
-    gene_clusters = {}
-    for gene in genes:
-        gene_df = get_gene_df(expression_df, gene, tissues)
-        if samples:
-            samples = set(samples).intersection(gene_df.index)
-        gene_clusters[gene] = mixtures.fit_dpgmm(gene_df, 
-                                                 return_predictions=True, 
-                                                 indices=samples, 
-                                                 *args,
-                                                 **kwargs)
-
-    gene_clusters_df = pd.DataFrame.from_dict(gene_clusters, orient='index')
-    if consolidate:
-        gene_clusters_df = gene_clusters_df.apply(lambda x: x.value_counts(), axis=1)
-    return gene_clusters_df
