@@ -1,0 +1,45 @@
+#+TITLE: Modeling prediction error improves power of transcriptome-wide association studies
+#+DATE: 
+#+AUTHOR: Kunal Bhutani, Abhishek Sarkar, Nicholas J. Schork, Manolis Kellis
+#+EMAIL: 
+#+LANGUAGE: en
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+#+CREATOR: Emacs 24.5.1 (Org mode 8.3.2)
+#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:t arch:headline author:t c:nil
+#+OPTIONS: creator:nil d:(not "LOGBOOK") date:t e:t email:nil f:t inline:t
+#+OPTIONS: num:t p:nil pri:nil prop:nil stat:t tags:t tasks:t tex:t
+#+OPTIONS: timestamp:t title:t toc:t todo:t |:t
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS:
+#+LATEX_HEADER:
+#+LATEX_HEADER_EXTRA:
+
+Thousands of loci associated with hundreds of complex diseases have been
+reported in the NHGRI catalog of genome-wide association studies
+\cite{10.1093/nar/gkt1229} (GWASs). However, most genome-wide significant loci
+are devoid of protein-coding alterations \cite{10.1073/pnas.0903103106} and
+likely instead affect transcriptional regulation. Several studies have directly
+investigated the role of transcriptional regulation on complex diseases by
+jointly considering genotypes, expression, and phenotypes \cite{xxx}. However,
+such studies require all data to be measured in all samples, which is still
+prohibitive at the scale of GWAS.
+
+Recent large-scale efforts have produced reference data on molecular phenotypes
+relevant to transcriptional regulation. The Gene-Tissue Expression Project
+(GTEx) has generated XXX reference transcriptomes
+\cite{10.1126/science.1262110}. Several methods have been proposed to use these
+reference data to impute gene expression into GWAS cohorts where expression is
+not measured \cite{10.1038/ng.3367,10.1101/024083}. From imputed expression, we
+can conduct transcriptome-wide association studies (TWASs) to directly find
+genes whose expression is associated with phenotype.
+
+Here, we develop a method to explicitly model error in imputed expression and
+propagate this error through TWAS. We show through simulation and application
+to real data that our method improves power to detect genes associated with
+phenotype.
+
+* Results
+** Simulation study
+** Application to WTCCC diseases
+* Discussion
