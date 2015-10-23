@@ -5,5 +5,6 @@ data:
        database: DGN-WB_0.5.txt 
    gtex:
      dir: /projects/gtex
-   
+   references:
+     dbgap: /projects/references/snp142Common.txt.gz
         
