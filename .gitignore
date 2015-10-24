@@ -1,8 +1,8 @@
 # Configuration
-config.yaml
+/config.yaml
 
 # Data
-data/
+/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
