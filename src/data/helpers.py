@@ -23,18 +23,20 @@ def gz_aware_open(fn):
         return open(fn)
 
 
+def convert_chrom(chrom):
+    chrom = str(chrom)[-1]  # Remove chr, chrom, etc.
+    if chrom == 'X':
+        chrom = '23'
+    elif chrom == 'Y':
+        chrom = '24'
+    chrom = int(chrom)
+    assert chrom <= 24, 'Unrecognized chromosome'
+    return chrom
+
 def get_max_locus(locus1, locus2):
     '''
     locus: (chromosome, position)
     '''
-    def convert_chrom(chrom):
-        chrom = str(chrom)[-1]  # Remove chr, chrom, etc.
-        if chrom == 'X':
-            chrom = '23'
-        elif chrom == 'Y':
-            chrom = '24'
-        chrom = int(chrom)
-        assert chrom <= 24, 'Unrecognized chromosome'
 
     chrom1, chrom2 = convert_chrom(locus1[0]), convert_chrom(locus2[0])
     pos1, pos2 = int(locus1[1]), int(locus2[1])
@@ -55,12 +57,15 @@ def stream_predict(df, vcf_file):
     '''
     Predicts expression of genes found in df.
 
-    DF requires the following columns:
+    df requires the following columns:
         gene, beta, chromosome, position
     '''
     required_columns = set(['gene', 'beta', 'chromosome', 'position'])
     column_match = len(required_columns.intersection(df.columns))
     assert column_match == 4, "All required columns not found"
+
+    df['chromosome'] = df.chromosome.map(convert_chrom)
+    df = df.sort(['chromosome', 'position'])
 
     with gz_aware_open(vcf_file) as IN:
         for line in IN:
@@ -73,13 +78,21 @@ def stream_predict(df, vcf_file):
 
     predicted_expression = defaultdict(lambda: np.zeros(len(samples)))
     db_index = 0
+    incorrect = 0
+    switched = 0
     entry = df.ix[db_index]
     entry_locus = (entry['chromosome'], entry['position'])
     entries_not_found = []
+    incorrect_entries = []
     with gz_aware_open(vcf_file) as IN:
         for line in IN:
+
+            if db_index >= len(df):
+                break
+
             if line.startswith('#'):
                 continue
+
 
             data = line.rstrip('\n').split()
             chrom, position = data[0], data[1]
@@ -91,7 +104,7 @@ def stream_predict(df, vcf_file):
                 while get_max_locus(vcf_locus, entry_locus) == vcf_locus:
                     entries_not_found.append(entry)
                     db_index += 1
-                    if db_index == len(df):
+                    if db_index >= len(df):
                         break
                     entry = df.ix[db_index]
                     entry_locus = (entry['chromosome'], entry['position'])
@@ -101,15 +114,20 @@ def stream_predict(df, vcf_file):
                 db_ref, db_alt = entry['refAllele'], entry['alt']
                 alt_allele = '1'
                 if not is_match(vcf_ref, db_ref, vcf_alt, db_alt):
-                    print 'Non-matching reference and alt:'
-                    print chrom, position
+                    #print 'Non-matching reference and alt:'
+                    #print chrom, position, entry['rsid']
+                    #print vcf_ref, vcf_alt
+                    #print db_ref, db_alt
+                    incorrect += 1
                     # See if order is switched
                     if not is_match(vcf_ref, db_alt, vcf_alt, db_ref):
-                        continue
+                        break # Break out of while loop
+                        incorrect_entries.append(entry)
                     else:
                         # Switch the order
-                        print 'Switching reference and alt:'
-                        print chrom, position
+                        #print 'Switching reference and alt:'
+                        #print chrom, position
+                        switched += 1
                         alt_allele = '0'
                 genotypes = [sample.split(':')[0] for sample in data[9:]]
                 allele_counts = map(calculate_alleles,
@@ -123,14 +141,16 @@ def stream_predict(df, vcf_file):
 
                 # Update
                 db_index += 1
-                if db_index == len(df):
-                        break
+                if db_index >= len(df):
+                    break
                 entry = df.ix[db_index]
                 entry_locus = (entry['chromosome'], entry['position'])
 
 
-        print db_index
+        print 'Total', db_index
+        print 'Incorrect', incorrect
+        print 'Switched', switched
         predicted_df = pd.DataFrame.from_dict(predicted_expression,
                                               orient='index')
         predicted_df.columns = samples
-        return predicted_df, entries_not_found
+        return predicted_df, entries_not_found, incorrect_entries

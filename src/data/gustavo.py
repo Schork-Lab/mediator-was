@@ -52,4 +52,4 @@ def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv")):
 
 def predict_expression(en_df, vcf_file):
     predictions_df, not_found = h.stream_predict(en_df, vcf_file)
-    return predictions_df, not_found
+    return predictions_df, not_found, incorrect
