@@ -37,19 +37,21 @@ def add_positions_to_database(en_db=en_db,
     return fn
 
 
-def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv")):
+def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
+                 alpha=1.0):
     '''
     Load database
     '''
 
     en_df = pd.read_table(fn, sep="\t")
-    en_df['chromosome'] = en_df['chr'].map(lambda x: str(x)[-1])
+    en_df = en_df[en_df.alpha == alpha]
+    en_df['chromosome'] = en_df['chr']
     en_df['position'] = en_df['end']
-    en_df = en_df.sort(['chromosome', 'position'])
     en_df.index = range(len(en_df))
+
     return en_df
 
 
 def predict_expression(en_df, vcf_file):
-    predictions_df, not_found = h.stream_predict(en_df, vcf_file)
-    return predictions_df, not_found, incorrect
+    predictions_df, not_found, incorrect, switched = h.stream_predict(en_df, vcf_file)
+    return predictions_df, not_found, incorrect, switched

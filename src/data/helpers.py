@@ -24,7 +24,11 @@ def gz_aware_open(fn):
 
 
 def convert_chrom(chrom):
-    chrom = str(chrom)[-1]  # Remove chr, chrom, etc.
+    chrom = str(chrom)
+    if chrom.startswith('chrom'):
+        chrom= chrom[5:]
+    elif chrom.startswith('chr'):
+        chrom = chrom[3:]
     if chrom == 'X':
         chrom = '23'
     elif chrom == 'Y':
@@ -66,6 +70,7 @@ def stream_predict(df, vcf_file):
 
     df['chromosome'] = df.chromosome.map(convert_chrom)
     df = df.sort(['chromosome', 'position'])
+    df.index = range(len(df))
 
     with gz_aware_open(vcf_file) as IN:
         for line in IN:
@@ -77,13 +82,13 @@ def stream_predict(df, vcf_file):
     samples = samples.split()[9:]
 
     predicted_expression = defaultdict(lambda: np.zeros(len(samples)))
-    db_index = 0
-    incorrect = 0
-    switched = 0
-    entry = df.ix[db_index]
-    entry_locus = (entry['chromosome'], entry['position'])
     entries_not_found = []
     incorrect_entries = []
+    switched_entries = []
+
+    db_index = 0
+    entry = df.ix[db_index]
+    entry_locus = (entry['chromosome'], entry['position'])
     with gz_aware_open(vcf_file) as IN:
         for line in IN:
 
@@ -118,16 +123,15 @@ def stream_predict(df, vcf_file):
                     #print chrom, position, entry['rsid']
                     #print vcf_ref, vcf_alt
                     #print db_ref, db_alt
-                    incorrect += 1
                     # See if order is switched
                     if not is_match(vcf_ref, db_alt, vcf_alt, db_ref):
-                        break # Break out of while loop
                         incorrect_entries.append(entry)
+                        break # Break out of while loop
                     else:
                         # Switch the order
                         #print 'Switching reference and alt:'
                         #print chrom, position
-                        switched += 1
+                        switched_entries.append(entry)
                         alt_allele = '0'
                 genotypes = [sample.split(':')[0] for sample in data[9:]]
                 allele_counts = map(calculate_alleles,
@@ -148,9 +152,10 @@ def stream_predict(df, vcf_file):
 
 
         print 'Total', db_index
-        print 'Incorrect', incorrect
-        print 'Switched', switched
+        print 'Not Found', len(entries_not_found)
+        print 'Incorrect', len(incorrect_entries)
+        print 'Switched', len(switched_entries)
         predicted_df = pd.DataFrame.from_dict(predicted_expression,
                                               orient='index')
         predicted_df.columns = samples
-        return predicted_df, entries_not_found, incorrect_entries
+        return predicted_df, entries_not_found, incorrect_entries, switched_entries
