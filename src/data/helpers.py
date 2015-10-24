@@ -33,8 +33,11 @@ def convert_chrom(chrom):
         chrom = '23'
     elif chrom == 'Y':
         chrom = '24'
-    chrom = int(chrom)
-    assert chrom <= 24, 'Unrecognized chromosome'
+    try:
+        chrom = int(chrom)
+    except:
+        chrom = 25
+    #assert chrom <= 24, 'Unrecognized chromosome'
     return chrom
 
 def get_max_locus(locus1, locus2):
