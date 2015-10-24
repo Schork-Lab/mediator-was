@@ -9,11 +9,13 @@ import gtex
 import helpers as h
 
 # Relative paths
-config = yaml.load(open('../config.yaml'))
+full_path = os.path.dirname(os.path.abspath(__file__))
+config = yaml.load(open(os.path.join(full_path,
+                                     '../../config.yaml')))
 dbsnp = config['data']['references']['dbsnp']
-main_dir = config['data']['gustavo']['dir']
+main_dir = config['data']['predixcan']['dir']
 en_db = os.path.join(main_dir,
-                     config['data']['gustavo']['files']['database'])
+                     config['data']['predixcan']['files']['database'])
 
 
 def add_positions_to_database(en_db=en_db,

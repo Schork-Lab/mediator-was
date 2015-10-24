@@ -4,7 +4,9 @@ import yaml
 import pandas as pd
 from pyensembl import EnsemblRelease
 
-config = yaml.load(open('../config.yaml'))
+full_path = os.path.dirname(os.path.abspath(__file__))
+config = yaml.load(open(os.path.join(full_path,
+                                     '../../config.yaml')))
 main_dir = config['data']['gtex']['dir']
 genotype_fn = os.path.join(main_dir,
                            config['data']['gtex']['files']['genotypes'])
