@@ -1,10 +1,12 @@
 # Python libraries
 import os
+import gzip
 # Packages
 import yaml
 import pandas as pd
 # Project
 import gtex
+import helpers as h
 
 # Relative paths
 config = yaml.load(open('../config.yaml'))
@@ -40,6 +42,14 @@ def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv")):
     Load database
     '''
 
-    en_df = pd.read_table('../data/DGN-WB_0.5.withpos.txt', sep="\t")
-    en_df['chr'] = en_df['chr'].map(lambda x: x[3:])
+    en_df = pd.read_table(fn, sep="\t")
+    en_df['chromosome'] = en_df['chr'].map(lambda x: str(x)[-1])
+    en_df['position'] = en_df['end']
+    en_df = en_df.sort(['chromosome', 'position'])
+    en_df.index = range(len(en_df))
     return en_df
+
+
+def predict_expression(en_df, vcf_file):
+    predictions_df, not_found = h.stream_predict(en_df, vcf_file)
+    return predictions_df, not_found
