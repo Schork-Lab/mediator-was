@@ -57,3 +57,14 @@ def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
 def predict_expression(en_df, vcf_file):
     predictions_df, not_found, incorrect, switched = h.stream_predict(en_df, vcf_file)
     return predictions_df, not_found, incorrect, switched
+
+def load_predicted(fn):
+    if fn.endswith('.gz'):
+        compression = 'gzip'
+    else:
+        compression = None
+    predicted_df = pd.read_table(fn, 
+                                 index_col=0,
+                                 compression=compression,
+                                 sep='\t')
+    return predicted_df
