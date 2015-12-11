@@ -43,3 +43,195 @@ phenotype.
 ** Simulation study
 ** Application to WTCCC diseases
 * Discussion
+* Methods
+** Imputed Expression
+The general model linking phenotype to the genome is the simple
+univariate model at one locus:
+
+\begin{equation}
+P = G{\beta_\text{g}} + \epsilon 
+\end{equation}
+where:
+\begin{itemize}[label=]
+    \item $P$: is a n x 1 phenotype vector
+    \item $G$: is a vector n x 1 vector of genotypes {0, 1, 2} to represent number of minor alleles 
+    \item $\beta_\text{g}$: is the effect size of the locus
+    \item $\epsilon$: is a n x 1 vector of errors.
+\end{itemize}
+
+The OLS solutions finds a $\hat{\beta_\text{g}}$ that minimizes the sum of squared residuals (SSR), 
+
+\begin{equation}
+SSR = \sum{(P-G\hat{\beta_\text{g}}})^2
+\end{equation}
+
+The predicted phenotype, $\hat{P}$, 
+
+\begin{equation}
+{\hat{P} = G\hat{\beta}}
+\end{equation}
+
+is the point estimate of the amount of phenotype that is explained by
+the locus and the residuals $\epsilon$
+carries the effect of other factors i.e. environment, other parts of the genome.
+
+Additionally, there is a standard error associated with $\hat{\beta_\text{g}}$, $SE({\hat{\beta_\text{g}}})$ that reflects
+the uncertainty in the estimate of the contribution of the locus to the phenotype. As such, the predicted
+locus contribution $\hat{P}$ has an associated variance.
+
+\begin{equation}
+{Var(\hat{P}) = GG^T*Var(\hat{\beta_\text{g}})}
+\end{equation}
+
+A similar model exists if the phenotype of interest is the expression of a gene.
+Since expression is known to be caused by several eQTLs, most people train the model to look at cis-heritability
+of gene, or the effect of 1MB before the gene. Let's assume that this is reflected by $k$ different loci. 
+The model then becomes:
+
+\begin{equation}
+{E = G{\beta_\text{g}} + \epsilon} , 
+\end{equation}
+
+where:
+\begin{itemize}[label=]
+    \item $E$: is a n x 1 phenotype vector
+    \item $G$: is a vector n x k vector of genotypes {0, 1, 2} to represent number of minor alleles 
+        \item $\beta_\text{g}$: is a k x 1 vector of effect sizes
+    \item $\epsilon$: is a n x 1 vector of errors.
+\end{itemize}
+
+However, since OLS overfits as k approaches n, most people use an algorithm with a sparsity
+constraint to find the predicted values of $\hat{\beta}$ that only selects few predictor variables with high effect sizes. The two methods of interest for us are Elastic Net (Gustavo et al) and Bayesian Sparse Linear Mixed Models (Gusev et al). Both of these methods produce
+
+\begin{itemize}[label=]
+    \item $\hat{E}_\text{cis}$: the predicted expression caused by cis expression
+ \end{itemize}
+
+However, we are also interested in:
+
+\begin{itemize}[label=]
+\item $Var(\hat{E}_\text{cis})$: the variance on the predicted expression caused by cis expression. 
+\end{itemize}
+Before diving into how to calculate these quantity for the two methods, let's talk a bit about why it's important.
+
+
+** Mediator-wide associated studies
+
+The main motivation of this study is because of the newly inspired prospect of Mediator-wide association studies (MWAS), where the goal is to look for mediators that best explain a clinical phenotype i.e. for a specific mediator M:
+
+\begin{equation}
+{P = M{\beta_\text{m}} + \epsilon} , 
+\end{equation}
+
+where:
+\begin{itemize}[label=]
+    \item $P$: is a n x 1 phenotype vector
+    \item $M$: is a vector n x 1 vector of mediator continuous values 
+    \item $\beta_\text{m}$: is the effect size of the mediator
+    \item $\epsilon$: is a n x 1 vector of errors.
+\end{itemize}
+
+The mediator can be anything from Expression to Methylation to Metabolomics. Unfortunately,
+there is not a lot of data currently collected for these mediators. There is, however, many GWAS related datasets. As such, studies are looking to use these GWAS studies to calculate the genome contribution to a mediator $M_{genome}$ and use it as 
+
+\begin{equation}
+P = M_{genome}{\beta_\text{m}} + \epsilon , 
+\end{equation}
+or in the previous example:
+
+\begin{equation}
+{P = E_\text{cis}{\beta_\text{m}} + \epsilon}.
+\end{equation}
+However, studies do not have $E_\text{cis}$. Instead they calculate a predicted expression by first finding the locus and associated $\beta_\text{g}$ in datasets which have both genotype and expression (i.e. GTEX). And then for datasets where they have only genotypes, they calculate $\hat{E}_{cis}$ to use for MWAS. However, we
+have shown $\hat{E}_\text{cis}$ has an associated variance $Var(\hat{E}_\text{cis})$. 
+
+
+For individual i, we want to be fitting
+
+\begin{equation}
+\label{eq:p-truth}
+{ p_i = e^{cis}_{i}{\beta_\text{m}} + \epsilon}
+\end{equation} , which would be the actual expression of a gene. 
+
+However, the current tools fit
+
+\begin{equation}
+\label{eq:p-estimated}
+{p_i = \hat{e}^{cis}_{i}{\beta_\text{m}} + \epsilon } , \text{where}
+\end{equation}
+
+\begin{equation}
+\label{eq:e-error}
+{\hat{e}^{\text{cis}}_{i} = {e}^{cis}_{i} + \nu_i}
+\end{equation}
+
+One can consider $\nu_i$ as the error in the measurement of the expression. Thus the model that they should be fitting is an errors-in-measurement model where both the predictor and the measurement have associated errors. Although there exists tools that do not require parameterization of $\nu_i$ to find a solution for the aforementioned set of equations. It is possible to estimate $\nu_i$ based on the variance of $\hat{e}^{cis}_{i}$
+
+To clarify this further, consider the models that are being fit are 
+
+\begin{equation}
+\label{eq:current-model}
+{ p = (\hat{e}^{cis}){\beta_\text{m-predicted}} + \epsilon }
+\end{equation}
+
+We know the real model is:
+\begin{equation}
+\label{eq:true-model}
+{ p = ({e}^{cis}){\beta_\text{m-true}} + \epsilon}
+\end{equation}
+
+To get a feel for the bias in the estimate of $\beta_\text{m-predicted}$, let's consider, the OLS estimator of $\beta_\text{m-predicted}$ to be
+
+\begin{equation}
+{ \hat{\beta}_\text{m-predicted} = \frac{cov(\hat{e}^{cis}, p)}{var(\hat{e}^{cis}) }} = \frac{cov({e}^{cis} + \nu, e^{cis}\beta_{m-true} + \epsilon)}{var({e}^{cis} + \nu)}
+\end{equation} , 
+
+which yields the probability limit:
+
+\begin{equation}
+\text{plim} \hat{\beta}_\text{m-predicted}} = \frac{\sigma_{{e}_\text{cis}}^2}{\sigma_{{e}_\text{cis}}^2 + \sigma_{\nu}^2}\beta_\text{m-true} = \lambda \beta_\text{m-true}
+\end{equation}
+
+As such, in the MWAS step, the $\beta_{m}$ is attenuated by the reliability ratio or attentuation bias $\lambda$.
+
+# \section{Estimating Expression Variance}
+
+# \subsection{ElasticNet (Gustavo et al)}
+
+# ElasticNet does not provide estimates for standard error of $\beta$. However, we can calculate residual expression, $R$ using orthogonal datasets from the ones used to calculate $\beta$, but which have real gene expression.
+
+# \begin{equation} 
+# \label{eq:residuals}
+# R = E_{measured} - \hat{E}_{cis}
+# \end{equation}
+
+# Although this does not give you an individual's variance on their expression, it gives you an estimate of population variance across all individuals. You can incorporate this information as a attenuation bias. 
+
+# So,  To estimate $\sigma_{\nu}^2$, we can use the residuals described in Eq. \ref{eq:residuals}
+
+# Now, this residual factor incorporates not only the variance of the cis heritability but also environmental and other factors that were not considered. So this is an upper bound and a first pass. However, using GCAT or a similar tool, we might have an estimate heritability $h^2$. 
+
+# # Question: Is it possible to use this $h^2$ with the residuals, and the observed $R^2$ between Measured and Predicted to put an upper bound on the # $Var(\hat{E}_{cis})$ ?
+
+# \subsection{Bayesian Sparse Linear Mixed Models (BSLMM) (Gusev et al.)}
+
+
+# BLSMM provide estimates of $\hat{\beta}$ as well as associated standard errors $SE(\hat{\beta})$ . If we assume normality and independence for the $\hat{\beta}$, then for individual i, the
+# imputed expression over the k loci is 
+
+# \begin{equation}
+# { \hat{e}^{cis}_{i} = \sum_{k}g_k*{\hat{\beta}_k}\ \ \ Var({\hat{e}}^{cis}_{i}) = \sum_{k}g_k^2*{SE(\hat{\beta}_k)}} ,
+# \end{equation}
+
+# where:
+# \begin{itemize}[label=]
+#     \item $g_k$: is the genotype at locus k
+#     \item $\hat{\beta}_k$: is the effect at locus k
+# \end{itemize}
+
+# #Question: Does this make sense?
+
+# #Question: It is also possible in the total least squares sense to use an estimate of $\nu$ that's population wide. How would I get the population variance $Var(\hat{E}^{cis})?$
+
+# Actually, I'm not sure about the normality of standard errors and independence of them in a Bayesian Sparse Linear Mixed Model. However, the model uses MCMC to calculate its posterior guesses of $\beta_\text{m}$, thus we are planning on just using iterations of the MCMC to get $var(\hat{e}^{cis}_{i})$ .
+
