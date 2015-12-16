@@ -1,6 +1,6 @@
 data:
    gustavo:
-     dir: /home/kbhutani/mediator-was/data/predixcan/
+     dir: /home/projects/kbhutani/mediator/data/predixcan/
      files:
        database: DGN-WB_0.5.txt 
    gtex:
@@ -10,4 +10,13 @@ data:
        expression: ExpressionFiles/gtex.portal.normalized/Whole_Blood_Analysis.expr.txt
    references:
      dbsnp: /projects/references/snp142Common.txt.gz
-        
+   bslmm:
+     dir: /projects/twas
+     studies:
+       NTR: 
+         dir: WEIGHTS_NTR
+       YFS: 
+         dir: WEIGHTS_YFS
+
+analysis:
+   dir: /home/kbhutani/projects/mediator/analysis        
