@@ -1,6 +1,9 @@
 # Configuration
 config.yaml
 
+# Data
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -60,4 +63,7 @@ docs/_build/
 target/
 
 # Jupyter
-jupyter/.ipynb_checkpoints
+.ipynb_checkpoints
+
+# Rope
+.ropeproject
