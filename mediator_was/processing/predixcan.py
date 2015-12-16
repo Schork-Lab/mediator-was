@@ -1,12 +1,9 @@
 # Python libraries
 import os
-import gzip
 # Packages
 import yaml
 import pandas as pd
-# Project
-import gtex
-import helpers as h
+
 
 # Relative paths
 full_path = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +37,7 @@ def add_positions_to_database(en_db=en_db,
 
 
 def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
-                 alpha=1.0):
+                  alpha=1.0):
     '''
     Load database
     '''
@@ -52,19 +49,3 @@ def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
     en_df.index = range(len(en_df))
 
     return en_df
-
-
-def predict_expression(en_df, vcf_file):
-    predictions_df, not_found, incorrect, switched = h.stream_predict(en_df, vcf_file)
-    return predictions_df, not_found, incorrect, switched
-
-def load_predicted(fn):
-    if fn.endswith('.gz'):
-        compression = 'gzip'
-    else:
-        compression = None
-    predicted_df = pd.read_table(fn, 
-                                 index_col=0,
-                                 compression=compression,
-                                 sep='\t')
-    return predicted_df
