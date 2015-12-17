@@ -27,7 +27,7 @@ def _opener(file_name):
         opener = gzip.open
     else:
         opener = open
-    return opener
+    return opener(file_name)
 
 
 def _max_locus(locus1, locus2):
@@ -37,7 +37,6 @@ def _max_locus(locus1, locus2):
 
     chrom1, chrom2 = _convert_chrom(locus1[0]), _convert_chrom(locus2[0])
     pos1, pos2 = int(locus1[1]), int(locus2[1])
-
     if chrom1 > chrom2:
         return locus1
     elif (chrom1 == chrom2) and (pos1 > pos2):
@@ -77,6 +76,9 @@ def _parser_vcf(line, alt_allele='1'):
             return alleles[allele]
         return alleles
 
+    if line.startswith('#'):
+        return '0', '0', '0', '0', [0]
+
     data = line.rstrip().split()
     chromosome = data[0]
     position = data[1]
@@ -97,7 +99,7 @@ def _parser_oxstats(line):
     ref = data[3]
     alt = data[4]
     alt_counts = []
-    for i in np.arange(5, len(data)+1, 3):
+    for i in np.arange(5, len(data)-2, 3):
         alt_count = 1*float(data[i+1])
         alt_count += 2*float(data[i+2])
         alt_counts.append(alt_count)
@@ -122,12 +124,12 @@ def stream(weight_file, genotype_file, genotype_filetype):
     '''
 
     # Prepare weights
-    weights = pd.read_table(weight_file, sep="\t")
+    weights = pd.read_table(weight_file, sep=" ")
     required_columns = set(['gene', 'beta',
                             'chromosome', 'position', 'rsid',
                             'ref', 'alt'])
     column_match = len(required_columns.intersection(weights.columns))
-    assert column_match == 6, "All required columns not found"
+    assert column_match == 7, "All required columns not found"
     weights['chromosome'] = weights.chromosome.map(_convert_chrom)
     weights = weights.sort(['chromosome', 'position'])
     weights.index = range(len(weights))
@@ -139,7 +141,7 @@ def stream(weight_file, genotype_file, genotype_filetype):
     if genotype_filetype == 'vcf':
         parser = _parser_vcf
         samples = _get_samples_vcf(genotype_file)
-    elif genotype_filetype == 'oxstat':
+    elif genotype_filetype == 'oxstats':
         parser = _parser_oxstats
         samples = _get_samples_oxstats(genotype_file)
     predicted_expression = defaultdict(lambda: np.zeros(len(samples)))
@@ -156,7 +158,7 @@ def stream(weight_file, genotype_file, genotype_filetype):
 
             while max_locus == gen_locus:  # Sync weights db
                 db_index += 1
-                if db_index == len(weights):
+                if db_index >= len(weights):
                     break
                 entry = weights.ix[db_index]
                 entry_locus = (entry['chromosome'], entry['position'])
@@ -198,8 +200,9 @@ def stream(weight_file, genotype_file, genotype_filetype):
                     break
                 entry = weights.ix[db_index]
                 entry_locus = (entry['chromosome'], entry['position'])
+                max_locus = _max_locus(gen_locus, entry_locus)
 
-            if db_index % 10000:
+            if db_index % 10000 == 0:
                 print '%d processed out of %d' % (db_index, len(weights))
 
         predicted_weights = pd.DataFrame.from_dict(predicted_expression,
