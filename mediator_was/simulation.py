@@ -7,6 +7,8 @@ import numpy
 import numpy.random
 import sklearn.linear_model
 
+import mediator_was.association
+
 def _errors(n, pve):
     """Sample errors to achieve desired PVE.
 
@@ -84,8 +86,19 @@ def test(params, models, n=5000):
     """
     beta, gene_params, pve = sim_params
     phenotype = numpy.zeros(n)
+    true_expression = []
+    predicted_expression = []
     for p, m in zip(gene_params, models):
         cis_genotypes, expression = simulate_gene(params=p, n=n)
-        predicted_expression = m.predict(cis_genotypes)
+        true_expression.append(expression)
+        predicted_expression.append(m.predict(cis_genotypes))
         phenotype += numpy.dot(expression, beta)
     phenotype += _errors(n, pve)
+
+    L = mediator_was.association.lrt
+    for true, predicted in zip(true_expression, predicted_expression):
+        p = [mediator_was.association.lrt_naive(true, phenotype),
+             L(predicted, phenotype, numpy.std(predicted - true)),
+             L(predicted, phenotype, numpy.std(predicted - numpy.mean(predicted))),
+        ]
+        print(*p)
