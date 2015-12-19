@@ -13,6 +13,13 @@ import statsmodels.tools
 # Freeze this for efficiency
 _sf = scipy.stats.chi2(1).sf
 
+def _logit(expression, phenotype):
+    """Wrapper around statsmodels.api.Logit"""
+    design = statsmodels.tools.add_constant(expression)
+    model = statsmodels.api.Logit(phenotype, design)
+    fit = model.fit()
+    return fit
+
 def lrt(expression, phenotype, sigma_u):
     """Return p-value of likelihood ratio test corrected by the reliability ratio.
 
@@ -31,11 +38,13 @@ def lrt(expression, phenotype, sigma_u):
     degree of freedom.
 
     """
-    design = statsmodels.tools.add_constant(expression)
-    model = statsmodels.api.Logit(phenotype, design)
-    fit = model.fit()
+    fit = _logit(expression, phenotype)
     llnull = fit.llnull
     sigma_x = numpy.var(expression)
     fit.params[1] *= (sigma_x + sigma_u) / sigma_x
     llalt = model.loglike(fit.params)
     return _sf(-2 * (llnull - llalt))
+
+def lrt_naive(expression, phenotype):
+    """Return naive p-value of likelihood ratio test."""
+    return _logit(expression, phenotype).llr_pvalue
