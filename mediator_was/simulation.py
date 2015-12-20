@@ -61,21 +61,20 @@ def simulate_gene(params, n=1000, pve=0.17):
     expression = _add_noise(numpy.dot(genotypes, beta), pve)
     return genotypes, expression
 
-def train(params, n=300, model=sklearn.linear_model.ElasticNet):
+def train(params, n=300, model=sklearn.linear_model.LinearRegression):
     """Train models on each cis-window.
 
+    params - list of (maf, effect size, pve) tuples
     n - number of individuals
     model - sklearn estimator
-    params - list of (maf, effect size, pve) tuples
 
     """
-    models = [model() for p in params]
-    for p, m in zip(params, models):
+    _, gene_params, _ = params
+    models = [model() for p in gene_params]
+    for p, m in zip(gene_params, models):
         m.fit(*simulate_gene(params=p, n=n))
     return models
 
-def test(params, models, n=5000):
-    """Return a vector of continuous phenotype values.
 def test(params, n=5000):
     """Return genotypes, true expression, and continuous phenotype.
 
@@ -95,3 +94,32 @@ def test(params, n=5000):
     phenotype = _add_noise(phenotype, pve)
     return genotypes, true_expression, phenotype
 
+def simulate(n_models=1):
+    """Run a simulation.
+
+    Sample n_models training cohorts to learn linear models of gene expression.
+
+    Sample one test cohort, predict expression using each linear model in turn,
+    and compute naive and corrected association statistics for phenotype
+    against predicted expression.
+
+    """
+    params = generate_sim_params()
+    models = [train(params) for _ in range(n_models)]
+    genotypes, true_expression, phenotype = test(params)
+    T = mediator_was.association.t
+    for g, e, ms in zip(genotypes, true_expression, zip(*models)):
+        predicted_expression = [m.predict(g) for m in ms]
+        if len(models) == 1:
+            # TODO: what if you don't have real expression?
+            sigma_u = numpy.var(predicted_expression[0] - e)
+        else:
+            # TODO: variance across replicates (training sets)
+            raise NotImplementedError
+        pvalues = [[T(p, phenotype) for p in predicted_expression],
+                   [T(p, phenotype, sigma_u) for p in predicted_expression]]
+        for p in zip(*pvalues):
+            print('\t'.join('{:.3e}'.format(_) for _ in p))
+
+if __name__ == '__main__':
+    simulate()
