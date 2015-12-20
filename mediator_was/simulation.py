@@ -9,14 +9,15 @@ import sklearn.linear_model
 
 import mediator_was.association
 
-def _errors(n, pve):
-    """Sample errors to achieve desired PVE.
+def _add_noise(genetic_value, pve):
+    """Add Gaussian noise to genetic values to achieve desired PVE.
 
     Assume true effects are N(0, 1) and sample errors from appropriately scaled
     Gaussian.
 
     """
-    return numpy.random.normal(size=n, scale=(1 / pve - 1))
+    sigma = numpy.var(genetic_value) * (1 / pve - 1)
+    return numpy.random.normal(size=genetic_value.shape, scale=sigma)
 
 def generate_gene_params(n_causal_snps, cis_pve=0.17, scale_by_maf=False):
     """Return a vector of minor allele frequencies and a vector of effect sizes.
@@ -48,18 +49,16 @@ def generate_sim_params(n_causal_genes=100, n_causal_snps=10, expression_pve=0.2
     return beta, gene_params, expression_pve
 
 def simulate_gene(params, n=1000, pve=0.17):
-    """Return a (n,) array of cis-heritable gene expression and (n,p) array of
-    cis-genotypes.
+    """Return genotypes at cis-eQTLs and cis-heritable gene expression.
 
-    n - number of individuals
-    p - number of SNPs
     params - (maf, effect size, cis_pve) tuple
+    n - number of individuals
     pve - proportion of variance explained by cis-eQTLs
 
     """
     maf, beta, pve = params
     genotypes = numpy.random.binomial(2, maf, size=(n, maf.shape[0]))
-    expression = numpy.dot(genotypes, beta) + _errors(n, pve)
+    expression = _add_noise(numpy.dot(genotypes, beta), pve)
     return genotypes, expression
 
 def train(params, n=300, model=sklearn.linear_model.ElasticNet):
@@ -77,27 +76,22 @@ def train(params, n=300, model=sklearn.linear_model.ElasticNet):
 
 def test(params, models, n=5000):
     """Return a vector of continuous phenotype values.
+def test(params, n=5000):
+    """Return genotypes, true expression, and continuous phenotype.
 
+    params - simulation parameters
     n - number of individuals
-    pve - proportion of variance explained by cis-heritable expression of causal genes
-    sim_params - gene effect sizes, cis-eQTL parameters
 
     """
-    beta, gene_params, pve = sim_params
+    beta, gene_params, pve = params
     phenotype = numpy.zeros(n)
+    genotypes = []
     true_expression = []
-    predicted_expression = []
-    for p, m in zip(gene_params, models):
+    for p, b in zip(gene_params, beta):
         cis_genotypes, expression = simulate_gene(params=p, n=n)
+        genotypes.append(cis_genotypes)
         true_expression.append(expression)
-        predicted_expression.append(m.predict(cis_genotypes))
-        phenotype += numpy.dot(expression, beta)
-    phenotype += _errors(n, pve)
+        phenotype += b * expression
+    phenotype = _add_noise(phenotype, pve)
+    return genotypes, true_expression, phenotype
 
-    L = mediator_was.association.lrt
-    for true, predicted in zip(true_expression, predicted_expression):
-        p = [mediator_was.association.lrt_naive(true, phenotype),
-             L(predicted, phenotype, numpy.std(predicted - true)),
-             L(predicted, phenotype, numpy.std(predicted - numpy.mean(predicted))),
-        ]
-        print(*p)
