@@ -18,7 +18,7 @@ def _errors(n, pve):
     """
     return numpy.random.normal(size=n, scale=(1 / pve - 1))
 
-def generate_gene_params(n_cis_snps, n_causal_snps, cis_pve=0.17, scale_by_maf=False):
+def generate_gene_params(n_causal_snps, cis_pve=0.17, scale_by_maf=False):
     """Return a vector of minor allele frequencies and a vector of effect sizes.
 
     The average PVE by cis-genotypes on gene expression is 0.17.
@@ -26,16 +26,15 @@ def generate_gene_params(n_cis_snps, n_causal_snps, cis_pve=0.17, scale_by_maf=F
     MAF sampled from U(0.5, 0.5). SNP effect sizes sampled from N(0, 1).
 
     """
-    maf = numpy.random.uniform(size=n_cis_snps, low=0.05, high=0.5)
-    beta = numpy.zeros(n_cis_snps)
-    beta[:n_causal_snps] = numpy.random.normal(size=n_causal_snps)
+    p = numpy.random.geometric(1 / n_causal_snps)
+    maf = numpy.random.uniform(size=p, low=0.05, high=0.5)
+    beta = numpy.random.normal(size=p)
     if scale_by_maf:
         # Scale effect sizes so each SNP explains equal variance
         beta /= numpy.sqrt(maf * (1 - maf))
     return maf, beta, cis_pve
 
-def generate_sim_params(n_causal_genes=100, n_cis_snps=200, n_causal_snps=10,
-                        expression_pve=0.2):
+def generate_sim_params(n_causal_genes=100, n_causal_snps=10, expression_pve=0.2):
     """Return causal gene effects and cis-eQTL parameters for causal genes.
 
     Each gene has an effect size sampled from N(0, 1). For each gene, generate
@@ -45,8 +44,8 @@ def generate_sim_params(n_causal_genes=100, n_cis_snps=200, n_causal_snps=10,
 
     """
     beta = numpy.random.normal(size=n_causal_genes)
-    genes = [generate_gene_params(n_cis_snps, n_causal_snps) for _ in beta]
-    return beta, genes, expression_pve
+    gene_params = [generate_gene_params(n_causal_snps) for _ in beta]
+    return beta, gene_params, expression_pve
 
 def simulate_gene(params, n=1000, pve=0.17):
     """Return a (n,) array of cis-heritable gene expression and (n,p) array of
