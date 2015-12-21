@@ -69,7 +69,7 @@ def t(expression, phenotype, sigma_u=None):
     if numpy.isscalar(sigma_u):
         return _t(fit.params[1])
     else:
-        return fit.pvalues[0]
+        return fit.pvalues[1]
 
 def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
