@@ -19,23 +19,28 @@ def _add_noise(genetic_value, pve):
     sigma = numpy.var(genetic_value) * (1 / pve - 1)
     return genetic_value + numpy.random.normal(size=genetic_value.shape, scale=sigma)
 
-def generate_gene_params(n_causal_snps, cis_pve=0.17, scale_by_maf=False):
+def generate_gene_params(scale_by_maf=False):
     """Return a vector of minor allele frequencies and a vector of effect sizes.
 
-    The average PVE by cis-genotypes on gene expression is 0.17.
+    The average PVE by cis-genotypes on gene expression is 0.17. Assume the
+    average number of causal cis-eQTLs is 10
 
-    MAF sampled from U(0.5, 0.5). SNP effect sizes sampled from N(0, 1).
+    n_causal_snps ~ Geometric(1 / 10)
+    pve ~ Beta(1, 1 / .17).
+    MAF ~ U(0.5, 0.5)
+    beta ~ N(0, 1)
 
     """
-    p = numpy.random.geometric(1 / n_causal_snps)
+    pve = numpy.random.beta(1, 1 / .17)
+    p = numpy.random.geometric(1 / 10)
     maf = numpy.random.uniform(size=p, low=0.05, high=0.5)
     beta = numpy.random.normal(size=p)
     if scale_by_maf:
         # Scale effect sizes so each SNP explains equal variance
         beta /= numpy.sqrt(maf * (1 - maf))
-    return maf, beta, cis_pve
+    return maf, beta, pve
 
-def generate_sim_params(n_causal_genes=100, n_causal_snps=10, expression_pve=0.2):
+def generate_sim_params(n_causal_genes=100, expression_pve=0.2):
     """Return causal gene effects and cis-eQTL parameters for causal genes.
 
     Each gene has an effect size sampled from N(0, 1). For each gene, generate
@@ -45,7 +50,7 @@ def generate_sim_params(n_causal_genes=100, n_causal_snps=10, expression_pve=0.2
 
     """
     beta = numpy.random.normal(size=n_causal_genes)
-    gene_params = [generate_gene_params(n_causal_snps) for _ in beta]
+    gene_params = [generate_gene_params() for _ in beta]
     return beta, gene_params, expression_pve
 
 def simulate_gene(params, n=1000, pve=0.17):
