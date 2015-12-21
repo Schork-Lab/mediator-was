@@ -126,4 +126,5 @@ def simulate(n_models=1):
         print('\t'.join('{:.3e}'.format(p) for p in pvalues))
 
 if __name__ == '__main__':
+    numpy.random.seed(0)
     simulate(n_models=4)
