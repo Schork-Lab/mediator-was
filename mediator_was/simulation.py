@@ -114,18 +114,16 @@ def simulate(n_models=1):
     genotypes, true_expression, phenotype = test(params)
     T = mediator_was.association.t
     for g, e, ms in zip(genotypes, true_expression, zip(*models)):
-        predicted_expression = [m.predict(g) for m in ms]
+        predicted_expression = numpy.array([m.predict(g) for m in ms])
         if len(ms) == 1:
-            # TODO: what if you don't have real expression?
+            # TODO: errors from linear model
             raise NotImplementedError
         else:
-            sigma_ui = numpy.var(numpy.array(predicted_expression), axis=0)
-            sigma_u = numpy.var(sigma_ui)
-        pvalues = [[T(p, phenotype) for p in predicted_expression],
-                   [T(p, phenotype, sigma_u) for p in predicted_expression],
-                   [T(p, phenotype, sigma_ui) for p in predicted_expression],]
-        for p in zip(*pvalues):
-            print('\t'.join('{:.3e}'.format(_) for _ in p))
+            w = numpy.mean(predicted_expression, axis=0)
+            sigma_ui = numpy.var(predicted_expression, axis=0)
+            sigma_u = numpy.mean(sigma_ui)
+        pvalues = [T(w, phenotype), T(w, phenotype, sigma_u), T(w, phenotype, sigma_ui)]
+        print('\t'.join('{:.3e}'.format(p) for p in pvalues))
 
 if __name__ == '__main__':
     simulate(n_models=4)
