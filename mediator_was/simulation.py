@@ -110,16 +110,17 @@ def simulate(n_models=1):
     T = mediator_was.association.t
     for g, e, ms in zip(genotypes, true_expression, zip(*models)):
         predicted_expression = [m.predict(g) for m in ms]
-        if len(models) == 1:
+        if len(ms) == 1:
             # TODO: what if you don't have real expression?
-            sigma_u = numpy.var(predicted_expression[0] - e)
-        else:
-            # TODO: variance across replicates (training sets)
             raise NotImplementedError
+        else:
+            sigma_ui = numpy.var(numpy.array(predicted_expression), axis=0)
+            sigma_u = numpy.var(sigma_ui)
         pvalues = [[T(p, phenotype) for p in predicted_expression],
-                   [T(p, phenotype, sigma_u) for p in predicted_expression]]
+                   [T(p, phenotype, sigma_u) for p in predicted_expression],
+                   [T(p, phenotype, sigma_ui) for p in predicted_expression],]
         for p in zip(*pvalues):
             print('\t'.join('{:.3e}'.format(_) for _ in p))
 
 if __name__ == '__main__':
-    simulate()
+    simulate(n_models=4)
