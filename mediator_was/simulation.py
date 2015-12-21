@@ -3,11 +3,19 @@
 Author: Abhishek Sarkar <aksarkar@mit.edu>
 
 """
+import collections
+import contextlib
+import pickle
+import sys
+
 import numpy
 import numpy.random
 import sklearn.linear_model
+import sklearn.metrics
 
 import mediator_was.association
+
+gene_params = collections.namedtuple(['maf', 'beta', 'pve'])
 
 def _add_noise(genetic_value, pve):
     """Add Gaussian noise to genetic values to achieve desired PVE.
@@ -16,7 +24,7 @@ def _add_noise(genetic_value, pve):
     Gaussian.
 
     """
-    sigma = numpy.var(genetic_value) * (1 / pve - 1)
+    sigma = numpy.sqrt(numpy.var(genetic_value) * (1 / pve - 1))
     return genetic_value + numpy.random.normal(size=genetic_value.shape, scale=sigma)
 
 def generate_gene_params(scale_by_maf=False):
@@ -53,12 +61,11 @@ def generate_sim_params(n_causal_genes=100, expression_pve=0.2):
     gene_params = [generate_gene_params() for _ in beta]
     return beta, gene_params, expression_pve
 
-def simulate_gene(params, n=1000, pve=0.17):
+def simulate_gene(params, n=1000):
     """Return genotypes at cis-eQTLs and cis-heritable gene expression.
 
     params - (maf, effect size, cis_pve) tuple
     n - number of individuals
-    pve - proportion of variance explained by cis-eQTLs
 
     """
     maf, beta, pve = params
@@ -77,7 +84,8 @@ def train(params, n=1000, model=sklearn.linear_model.LinearRegression):
     _, gene_params, _ = params
     models = [model() for p in gene_params]
     for p, m in zip(gene_params, models):
-        m.fit(*simulate_gene(params=p, n=n))
+        genotypes, expression = simulate_gene(params=p, n=n)
+        m.fit(genotypes, expression)
     return models
 
 def test(params, n=25000):
@@ -92,15 +100,16 @@ def test(params, n=25000):
     genotypes = []
     true_expression = []
     for p, b in zip(gene_params, beta):
-        cis_genotypes, expression = simulate_gene(params=p, n=n)
+        cis_genotypes, total_expression = simulate_gene(params=p, n=n)
         genotypes.append(cis_genotypes)
-        true_expression.append(expression)
-        genetic_value += b * expression
+        true_expression.append(total_expression)
+        genetic_value += b * total_expression
     phenotype = _add_noise(genetic_value, pve)
     return genotypes, true_expression, phenotype
 
-def simulate(n_models=1):
-    """Run a simulation.
+@contextlib.contextmanager
+def simulation(n_models=4):
+    """Retrieve a cached simulation, or run one if no cached simulation exists.
 
     Sample n_models training cohorts to learn linear models of gene expression.
 
@@ -109,12 +118,31 @@ def simulate(n_models=1):
     against predicted expression.
 
     """
-    params = generate_sim_params()
-    models = [train(params) for _ in range(n_models)]
-    genotypes, true_expression, phenotype = test(params)
+    hit = False
+    try:
+        with open('simulation.pkl', 'rb') as f:
+            sim = pickle.load(f)
+            hit = True
+    except:
+        params = generate_sim_params()
+        models = [train(params) for _ in range(n_models)]
+        genotypes, true_expression, phenotype = test(params)
+        sim = (params, models, genotypes, true_expression, phenotype)
+    try:
+        yield sim
+    except Exception as e:
+        raise e
+    finally:
+        if not hit:
+            with open('simulation.pkl', 'wb') as f:
+                pickle.dump(sim, f)
+
+def power(params, models, genotypes, true_expression, phenotype):
+    """Compute the power of the naive and corrected analyses."""
     T = mediator_was.association.t
-    for g, e, ms in zip(genotypes, true_expression, zip(*models)):
+    for g, e, p, ms in zip(genotypes, true_expression, params[1], zip(*models)):
         predicted_expression = numpy.array([m.predict(g) for m in ms])
+        corr = [m.score(g, e) for m in ms]
         if len(ms) == 1:
             # TODO: errors from linear model
             raise NotImplementedError
@@ -122,9 +150,19 @@ def simulate(n_models=1):
             w = numpy.mean(predicted_expression, axis=0)
             sigma_ui = numpy.var(predicted_expression, axis=0)
             sigma_u = numpy.mean(sigma_ui)
-        pvalues = [T(w, phenotype), T(w, phenotype, sigma_u), T(w, phenotype, sigma_ui)]
-        print('\t'.join('{:.3e}'.format(p) for p in pvalues))
+            mu_x = numpy.mean(w)
+            lambda_1 = mediator_was.association.reliability(w, sigma_u)
+            lambda_0 = mu_x - lambda_1 * mu_x
+            imputed_expression = lambda_0 + lambda_1 * w
+        pvalues = [T(w, phenotype),
+                   T(w, phenotype, sigma_u),
+                   T(w, phenotype, sigma_ui),
+        ]
+        print('\t'.join('{:.3e}'.format(p) for p in pvalues),
+              '\t'.join('{:.2f}'.format(c) for c in corr),
+              p[2], sep='\t')
 
 if __name__ == '__main__':
     numpy.random.seed(0)
-    simulate(n_models=4)
+    with simulation() as sim:
+        power(*sim)
