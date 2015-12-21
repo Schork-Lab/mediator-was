@@ -17,7 +17,7 @@ def _add_noise(genetic_value, pve):
 
     """
     sigma = numpy.var(genetic_value) * (1 / pve - 1)
-    return numpy.random.normal(size=genetic_value.shape, scale=sigma)
+    return genetic_value + numpy.random.normal(size=genetic_value.shape, scale=sigma)
 
 def generate_gene_params(n_causal_snps, cis_pve=0.17, scale_by_maf=False):
     """Return a vector of minor allele frequencies and a vector of effect sizes.
@@ -83,15 +83,15 @@ def test(params, n=5000):
 
     """
     beta, gene_params, pve = params
-    phenotype = numpy.zeros(n)
+    genetic_value = numpy.zeros(n)
     genotypes = []
     true_expression = []
     for p, b in zip(gene_params, beta):
         cis_genotypes, expression = simulate_gene(params=p, n=n)
         genotypes.append(cis_genotypes)
         true_expression.append(expression)
-        phenotype += b * expression
-    phenotype = _add_noise(phenotype, pve)
+        genetic_value += b * expression
+    phenotype = _add_noise(genetic_value, pve)
     return genotypes, true_expression, phenotype
 
 def simulate(n_models=1):
