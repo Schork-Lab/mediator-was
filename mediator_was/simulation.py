@@ -66,7 +66,7 @@ def simulate_gene(params, n=1000, pve=0.17):
     expression = _add_noise(numpy.dot(genotypes, beta), pve)
     return genotypes, expression
 
-def train(params, n=300, model=sklearn.linear_model.LinearRegression):
+def train(params, n=1000, model=sklearn.linear_model.LinearRegression):
     """Train models on each cis-window.
 
     params - list of (maf, effect size, pve) tuples
@@ -80,7 +80,7 @@ def train(params, n=300, model=sklearn.linear_model.LinearRegression):
         m.fit(*simulate_gene(params=p, n=n))
     return models
 
-def test(params, n=5000):
+def test(params, n=25000):
     """Return genotypes, true expression, and continuous phenotype.
 
     params - simulation parameters
