@@ -25,51 +25,58 @@ def _wrap(model):
 _ols = _wrap(statsmodels.api.OLS)
 _logit = _wrap(statsmodels.api.Logit)
 
-def reliability_ratio(expression, sigma_u):
-    """Return the reliability ratio given observed values and estimated error variance"""
-    sigma_x = numpy.var(expression) - sigma_u
+def reliability(expression, sigma_u):
+    """Return the reliability matrix given observed values and estimated errors."""
+    sigma_x = numpy.var(expression) - numpy.mean(sigma_u)
     return sigma_x / (sigma_x + sigma_u)
 
-def t(expression, phenotype, sigma_u=None):
-    """Test for association of continuous phenotype to expression.
+def _regression_calibration(model, expression, phenotype, sigma_u=None):
+    """Compute regression calibration estimates for model given expression,
+    phenotype, and estimated errors.
 
     If sigma_u is None, perform a naive analysis.
 
-    If sigma_u is a scalar, rescale the naive estimate of the regression
-    coefficient by the reliability ratio.
+    If sigma_u is a scalar, assume homoskedastic errors and rescale the naive
+    estimate of the regression coefficient by the reliability ratio.
 
-    If sigma_u is a vector, regress phenotype against imputed (true) expression
-    values.
+    If sigma_u is a vector, assume heteroskedastic errors regress phenotype
+    against imputed (true) expression values.
 
     """
-    fit = _ols(phenotype, expression)
-    assert(fit.params.shape[0] > 1)
-    if sigma_u is None:
-        return fit.pvalues[0]
-    elif numpy.isscalar(sigma_u):
-        return _t(fit.params[1] / reliability_ratio(expression, sigma_u))
+    if not isinstance(sigma_u, numpy.ndarray):
+        fit = model(phenotype, expression)
+        assert(fit.params.shape[0] > 1)
+        if sigma_u is None:
+            # Naive regression
+            pass
+        elif numpy.isscalar(sigma_u):
+            # Homoskedastic errors
+            fit.params[1] /= reliability(expression, sigma_u)
+        else:
+            raise ValueError("Expecting none or scalar")
     else:
-        raise NotImplementedError
+        # Heteroskedastic errors
+        mu_x = numpy.mean(expression)
+        lambda_1 = reliability(expression, sigma_u)
+        lambda_0 = mu_x - lambda_1 * mu_x
+        imputed_expression = lambda_0 + lambda_1 * expression
+        fit = model(phenotype, imputed_expression)
+    return fit
+
+def t(expression, phenotype, sigma_u=None):
+    """Test for association of continuous phenotype to expression."""
+    fit = _regression_calibration(_ols, expression, phenotype, sigma_u)
+    if numpy.isscalar(sigma_u):
+        return _t(fit.params[1])
+    else:
+        return fit.pvalues[0]
 
 def lr(expression, phenotype, sigma_u=None):
-    """Test for association between binary phenotype and expression.
-
-    If sigma_u is None, perform a naive analysis.
-
-    If sigma_u is a scalar, rescale the naive estimate of the regression
-    coefficient by the reliability ratio.
-
-    If sigma_u is a vector, regress phenotype against imputed (true) expression
-    values.
-
-    """
-    fit = _logit(phenotype, expression)
-    if sigma_u is None:
-        return fit.llr_pvalue
-    elif numpy.isscalar(sigma_u):
+    """Test for association between binary phenotype and expression."""
+    fit = _regression_calibration(_logit, expression, phenotype, sigma_u)
+    if numpy.isscalar(sigma_u):
         llnull = fit.llnull
-        fit.params[1] /= reliability_ratio(expression, sigma_u)
         llalt = model.loglike(fit.params)
         return _chi2(-2 * (llnull - llalt))
     else:
-        raise NotImplementedError
+        return fit.llr_pvalue
