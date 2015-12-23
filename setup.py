@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name='mediator_was',
       version='0.1',
@@ -7,5 +7,5 @@ setup(name='mediator_was',
       author='Kunal Bhutani, Abhishek Sarkar',
       author_email='kbhutani@ucsd.edu',
       license='MIT',
-      packages=['mediator_was'],
+      packages=find_packages(),
       zip_safe=False)
