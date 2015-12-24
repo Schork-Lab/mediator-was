@@ -5,15 +5,16 @@ Author: Abhishek Sarkar <aksarkar@mit.edu>
 """
 import collections
 import contextlib
+import operator
 import pickle
 import sys
 
 import numpy
-import numpy.random
+import numpy.random as R
 import sklearn.linear_model
 import sklearn.metrics
 
-import mediator_was.association
+from mediator_was.association import *
 
 Gene = collections.namedtuple('Gene', ['maf', 'beta', 'pve'])
 Phenotype = collections.namedtuple('Phenotype', ['beta', 'genes', 'pve'])
@@ -26,22 +27,20 @@ def _add_noise(genetic_value, pve):
 
     """
     sigma = numpy.sqrt(numpy.var(genetic_value) * (1 / pve - 1))
-    return genetic_value + numpy.random.normal(size=genetic_value.shape, scale=sigma)
+    return genetic_value + R.normal(size=genetic_value.shape, scale=sigma)
 
-def generate_gene_params(scale_by_maf=False):
+def _generate_gene_params(n_causal_eqtls, pve=0.17):
     """Return a vector of minor allele frequencies and a vector of effect sizes.
 
     The average PVE by cis-genotypes on gene expression is 0.17. Assume the
     average number of causal cis-eQTLs is 10.
 
     """
-    p = numpy.random.geometric(1 / 10)
-    pve = numpy.random.beta(1, 1 / .17)
-    maf = numpy.random.uniform(size=p, low=0.05, high=0.5)
-    beta = numpy.random.normal(size=p)
+    maf = R.uniform(size=n_causal_eqtls, low=0.05, high=0.5)
+    beta = R.normal(size=n_causal_eqtls)
     return Gene(maf, beta, pve)
 
-def generate_phenotype_params(n_causal_genes=100, pve=0.2):
+def _generate_phenotype_params(n_causal_genes=100, n_causal_eqtls=10, pve=0.2):
     """Return causal gene effects and cis-eQTL parameters for causal genes.
 
     Each gene has an effect size sampled from N(0, 1). For each gene, generate
@@ -50,55 +49,110 @@ def generate_phenotype_params(n_causal_genes=100, pve=0.2):
     The PVE by high-effect loci associated to height is 0.2.
 
     """
-    beta = numpy.random.normal(size=n_causal_genes)
-    genes = [generate_gene_params() for _ in beta]
+    beta = R.normal(size=n_causal_genes)
+    genes = [_generate_gene_params(n_causal_eqtls) for _ in beta]
     return Phenotype(beta, genes, pve)
 
-def simulate_gene(params, n=1000):
+def _simulate_gene(params, n=1000, center=True):
     """Return genotypes at cis-eQTLs and cis-heritable gene expression.
 
-    params - (maf, effect size, cis_pve) tuple
     n - number of individuals
 
     """
-    genotypes = numpy.random.binomial(2, params.maf, size=(n, params.maf.shape[0]))
+    genotypes = R.binomial(2, params.maf, size=(n, params.maf.shape[0])).astype(float)
+    if center:
+        genotypes -= numpy.mean(genotypes, axis=0)[numpy.newaxis,:]
     expression = _add_noise(numpy.dot(genotypes, params.beta), params.pve)
     return genotypes, expression
 
-def simulate_train(params, n=1000, model=sklearn.linear_model.LinearRegression):
-    """Train models on each cis-window.
+class Simulation(object):
+    def __init__(self, n_causal_genes=100, n_causal_eqtls=10, n_train=None):
+        """Initialize a new simulation"""
+        R.seed(0)
+        if n_train is None:
+            n_train = numpy.repeat(1000, 4)
+        elif numpy.isscalar(n_train):
+            n_train = numpy.array([n_train])
+        self.params = _generate_phenotype_params(n_causal_genes, n_causal_eqtls)
+        self.models = list(zip(*[self._train(n) for n in n_train]))
+        self.eqtls = self._eqtls(n_train[0])
 
-    params - list of (maf, effect size, pve) tuples
-    n - number of individuals
-    model - sklearn estimator
+    def _train(self, n=1000, model=sklearn.linear_model.LinearRegression):
+        """Train models on each cis-window.
 
-    """
-    models = [model() for _ in params.genes]
-    for p, m in zip(params.genes, models):
-        genotypes, expression = simulate_gene(params=p, n=n)
-        m.fit(genotypes, expression)
-    return models
+        n - number of individuals
+        model - sklearn estimator
 
-def simulate_test(params, n=25000):
-    """Return genotypes, true expression, and continuous phenotype.
+        """
+        models = [model() for _ in self.params.genes]
+        for p, m in zip(self.params.genes, models):
+            genotypes, expression = _simulate_gene(params=p, n=n)
+            m.fit(genotypes, expression)
+        return models
 
-    params - simulation parameters
-    n - number of individuals
+    def _eqtls(self, n=1000):
+        """Identify eQTLs in each cis-window."""
+        eqtls = []
+        for p, m in zip(self.params.genes, self.models):
+            genotypes, expression = _simulate_gene(params=p, n=n)
+            eqtls.append(min((t(g, expression)[1], i) for i, g in enumerate(genotypes.T))[1])
+        return eqtls
 
-    """
-    genetic_value = numpy.zeros(n)
-    genotypes = []
-    true_expression = []
-    for p, b in zip(params.genes, params.beta):
-        cis_genotypes, total_expression = simulate_gene(params=p, n=n)
-        genotypes.append(cis_genotypes)
-        true_expression.append(total_expression)
-        genetic_value += b * total_expression
-    phenotype = _add_noise(genetic_value, params.pve)
-    return genotypes, true_expression, phenotype
+    def _test(self, method, n=50000):
+        """Return genotypes, true expression, and continuous phenotype.
+
+        n - number of individuals
+        method - phenotype specification
+
+        """
+        genotypes, expression = zip(*[_simulate_gene(p, n) for p in self.params.genes])
+        phenotype = method(n, genotypes, expression)
+        return genotypes, expression, phenotype
+
+    def simulate_null_phenotype(self, n=50000):
+        """Simulate unmediated phenotype"""
+        return self._test(lambda n, *args: R.normal(size=n), n)
+
+    def simulate_independent_phenotype(self, n=50000):
+        """Simulate phenotype with independent effects at causal eQTLs"""
+        def phenotype(n, genotypes, expression):
+            genetic_value = sum(numpy.dot(g, R.normal(size=p.freq.shape))
+                                for g, p in zip(genotypes, self.params.genes))
+            return _add_noise(genetic_value, self.params.pve)
+        return self._test(phenotype, n)
+
+    def simulate_mediated_phenotype(self, n=50000):
+        """Simulate an expression mediated phenotype"""
+        def phenotype(n, genotypes, expression):
+            genetic_value = sum(b * e for e, b in zip(self.params.beta, expression))
+            return _add_noise(genetic_value, self.params.pve)
+        return self._test(phenotype, n)
+
+    def trace(self):
+        """Trace through the naive and corrected analyses."""
+        genotypes, true_expression, phenotype = self.simulate_null_phenotype(n=5000)
+        print('naive_p', 'corrected_p', 'true_p', 'sigma_x', 'sigma_u', 'pve')
+        for g, e, ms, p in zip(genotypes, true_expression, self.models, self.params.genes):
+            predicted_expression = numpy.array([m.predict(g) for m in ms])
+            if len(ms) == 1:
+                # TODO: errors from linear model
+                raise NotImplementedError
+            else:
+                w = numpy.mean(predicted_expression, axis=0)
+                sigma_ui = numpy.var(predicted_expression, axis=0)
+                sigma_u = numpy.mean(sigma_ui)
+            naive_se, naive_p = t(w, phenotype)
+            corrected_se, corrected_p = t(w, phenotype, sigma_u)
+            true_se, true_p = t(e, phenotype)
+            outputs = [naive_p, corrected_p, true_p,
+                       numpy.var(predicted_expression) - numpy.mean(sigma_u),
+                       numpy.mean(sigma_u),
+                       p.pve,
+            ]
+            print('\t'.join('{:.3g}'.format(o) for o in outputs))
 
 @contextlib.contextmanager
-def simulation(n_models=4):
+def simulation(n_causal_eqtls, n_train):
     """Retrieve a cached simulation, or run one if no cached simulation exists.
 
     Sample n_models training cohorts to learn linear models of gene expression.
@@ -108,72 +162,23 @@ def simulation(n_models=4):
     against predicted expression.
 
     """
+    key = 'simulation-{}-{}.pkl'.format(n_causal_eqtls, n_train)
     hit = False
     try:
-        with open('simulation.pkl', 'rb') as f:
+        with open(key, 'rb') as f:
             sim = pickle.load(f)
             hit = True
     except:
-        params = generate_phenotype_params()
-        models = [simulate_train(params) for _ in range(n_models)]
-        genotypes, true_expression, phenotype = simulate_test(params)
-        sim = (params, models, genotypes, true_expression, phenotype)
+        sim = Simulation(n_causal_eqtls=n_causal_eqtls, n_train=n_train)
     try:
         yield sim
     except Exception as e:
         raise e
     finally:
         if not hit:
-            with open('simulation.pkl', 'wb') as f:
+            with open(key, 'wb') as f:
                 pickle.dump(sim, f)
 
-def _trial(test, params, models, n_total_tests=15000, alpha=0.05):
-    """Count up significant hits for a new test set"""
-    count = numpy.zeros(2)
-    genotypes, true_expression, phenotype = simulate_test(params)
-    for g, e, ms in zip(genotypes, true_expression, zip(*models)):
-        predicted_expression = numpy.array([m.predict(g) for m in ms])
-        w = numpy.mean(predicted_expression, axis=0)
-        sigma_ui = numpy.var(predicted_expression, axis=0)
-        sigma_u = numpy.mean(sigma_ui)
-        alpha = alpha / n_total_tests
-        if test(w, phenotype)[1] < alpha:
-            count[0] += 1
-        if test(w, phenotype, sigma_u)[1] < alpha:
-            count[1] += 1
-    return count
-
-def power(test, params, models, *args, n_trials=10):
-    """Estimate the power of the naive and corrected analyses."""
-    count = numpy.zeros(2)
-    for _ in range(n_trials):
-        count += _trial(test, params, models)
-    return count / (100 * n_trials)
-
-def trace(params, models, genotypes, true_expression, phenotype):
-    """Trace through the naive and corrected analyses."""
-    T = mediator_was.association.t
-    print('naive_p', 'corrected_p', 'naive_se', 'corrected_se', 'sigma_x', 'sigma_u', 'pve')
-    for g, e, ms, p in zip(genotypes, true_expression, zip(*models), params.genes):
-        predicted_expression = numpy.array([m.predict(g) for m in ms])
-        if len(ms) == 1:
-            # TODO: errors from linear model
-            raise NotImplementedError
-        else:
-            w = numpy.mean(predicted_expression, axis=0)
-            sigma_ui = numpy.var(predicted_expression, axis=0)
-            sigma_u = numpy.mean(sigma_ui)
-        naive_se, naive_p = T(w, phenotype)
-        corrected_se, corrected_p = T(w, phenotype, sigma_u)
-        outputs = [naive_p, corrected_p,
-                   naive_se, corrected_se,
-                   numpy.var(predicted_expression) - numpy.mean(sigma_u),
-                   numpy.mean(sigma_u),
-                   p.pve,
-        ]
-        print('\t'.join('{:.3g}'.format(o) for o in outputs))
-
 if __name__ == '__main__':
-    numpy.random.seed(0)
-    with simulation() as sim:
-        trace(*sim)
+    with simulation(100, numpy.repeat(1000, 4)) as sim:
+        sim.trace()
