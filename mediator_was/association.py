@@ -15,6 +15,39 @@ import statsmodels.tools
 # Freeze this for efficiency
 _chi2 = scipy.stats.chi2(1).sf
 
+def gwas(genotypes, phenotype):
+    """Compute the best GWAS p-value in the locus"""
+    if len(genotypes.shape) == 1:
+        return t(genotypes, phenotype)[1]
+    else:
+        return min(t(g, phenotype)[1] for g in genotypes.T)
+
+def _moment_estimator(expression, phenotype, sigma_u=None):
+    """Compute modified method of moments estiamtor for model.
+
+    The algorithm is due to Fuller 1987, pp. 13-15
+
+    """
+    if sigma_u is None:
+        expression_error_var = 0
+    else:
+        expression_error_var = numpy.mean(sigma_u)
+    phenotype_expression_cov = numpy.cov(phenotype, expression)
+    expression_var = numpy.var(expression_var) - expression_error_var
+    coeff = phenotype_expression_cov / expression_var
+    phenotype_var = numpy.var(phenotype)
+    equation_error_var =  phenotype_var - coeff * coeff * expression_var
+    if equation_error_var < 0:
+        print("Warning: correcting negative estimate", file=sys.stderr)
+        expression_var = phenotype_expression_cov / phenotype_var
+        coeff = phenotype_expression_cov / expression_var
+    phenotype_mean = numpy.mean(phenotype)
+    expression_mean = numpy.mean(expression)
+    psuedo_residual_var = sum((p - phenotype_mean - (e - expression_mean) * coeff) ** 2 for p, e in zip(phenotype, expression)) / (n - 2)
+    coeff_var = (expression_var * psuedo_residual_var + coeff ** 2 * expression_error_var) / (n - 1)
+    se = math.sqrt(coeff_var)
+    return se, _chi2(coeff * coeff / (se * se))
+
 def _regression_calibration(model, expression, phenotype, sigma_u=None):
     """Compute regression calibration estimates for model given expression,
     phenotype, and estimated errors.
@@ -49,7 +82,7 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         H = delta.T.dot(delta) / (expression.shape[0] * (expression.shape[0] - 2))
         M = numpy.linalg.inv(expression_cov)
         coeff_cov = M.dot(H).dot(M)
-        return numpy.sqrt(coeff_cov[1, 1]), _chi2(math.pow(fit.params[1] / coeff_cov[1, 1], 2))
+        return math.sqrt(coeff_cov[1, 1]), _chi2(math.pow(fit.params[1] / math.sqrt(coeff_cov[1, 1]), 2))
 
 def t(expression, phenotype, sigma_u=None):
     """Test for association of continuous phenotype to expression."""
