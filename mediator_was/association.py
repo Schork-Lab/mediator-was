@@ -4,6 +4,7 @@ Author: Abhishek Sarkar <aksarkar@mit.edu>
 
 """
 import math
+import pdb
 import sys
 
 import numpy
@@ -76,14 +77,14 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         # TODO: handle heteroskedastic error
         reliability = numpy.linalg.inv(expression_cov + error_cov).dot(expression_cov)
         mu_x = numpy.tile(numpy.mean(design, axis=0), reps=(n, 1))
-        imputed_expression = mu_x - (design - mu_x).dot(reliability)
+        imputed_expression = mu_x + (design - mu_x).dot(reliability)
         fit = model(phenotype, imputed_expression).fit()
         pseudo_residuals = phenotype - numpy.dot(design, fit.params)
         delta = pseudo_residuals[:,numpy.newaxis] * design + error_cov.dot(fit.params)
         H = delta.T.dot(delta) / (expression.shape[0] * (expression.shape[0] - 2))
         M = numpy.linalg.inv(expression_cov)
         coeff_cov = M.dot(H).dot(M)
-        return math.sqrt(coeff_cov[1, 1]), _chi2(math.pow(fit.params[1] / math.sqrt(coeff_cov[1, 1]), 2))
+        return math.sqrt(coeff_cov[1, 1]), _chi2(fit.params[1] * fit.params[1] / coeff_cov[1, 1])
 
 def t(expression, phenotype, sigma_u=None):
     """Test for association of continuous phenotype to expression."""
