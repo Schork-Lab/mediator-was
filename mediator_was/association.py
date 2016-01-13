@@ -23,7 +23,7 @@ def gwas(genotypes, phenotype):
         return min(t(g, phenotype)[1] for g in genotypes.T)
 
 def _moment_estimator(expression, phenotype, sigma_u=None):
-    """Compute modified method of moments estiamtor for model.
+    """Compute method of moments estimator for model.
 
     The algorithm is due to Fuller 1987, pp. 13-15
 
@@ -32,8 +32,11 @@ def _moment_estimator(expression, phenotype, sigma_u=None):
         expression_error_var = 0
     else:
         expression_error_var = numpy.mean(sigma_u)
-    phenotype_expression_cov = numpy.cov(phenotype, expression)
-    expression_var = numpy.var(expression_var) - expression_error_var
+    n = phenotype.shape[0]
+    phenotype_mean = numpy.mean(phenotype)
+    expression_mean = numpy.mean(expression)
+    phenotype_expression_cov = sum((p - phenotype_mean) * (e - expression_mean) for p, e in zip(phenotype, expression)) / n
+    expression_var = numpy.var(expression) - expression_error_var
     coeff = phenotype_expression_cov / expression_var
     phenotype_var = numpy.var(phenotype)
     equation_error_var =  phenotype_var - coeff * coeff * expression_var
@@ -41,8 +44,6 @@ def _moment_estimator(expression, phenotype, sigma_u=None):
         print("Warning: correcting negative estimate", file=sys.stderr)
         expression_var = phenotype_expression_cov / phenotype_var
         coeff = phenotype_expression_cov / expression_var
-    phenotype_mean = numpy.mean(phenotype)
-    expression_mean = numpy.mean(expression)
     psuedo_residual_var = sum((p - phenotype_mean - (e - expression_mean) * coeff) ** 2 for p, e in zip(phenotype, expression)) / (n - 2)
     coeff_var = (expression_var * psuedo_residual_var + coeff ** 2 * expression_error_var) / (n - 1)
     se = math.sqrt(coeff_var)
@@ -86,7 +87,7 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
 
 def t(expression, phenotype, sigma_u=None):
     """Test for association of continuous phenotype to expression."""
-    return _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
+    return _moment_estimator(expression, phenotype, sigma_u)
 
 def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
