@@ -24,10 +24,14 @@ def gwas(genotypes, phenotype):
     else:
         return min(t(g, phenotype)[1] for g in genotypes.T)
 
-def _moment_estimator(expression, phenotype, sigma_u=None):
-    """Compute method of moments estimator for model.
+def _moment_estimator(expression, phenotype, sigma_u=None,
+                      model_check=False):
+    """Compute method of moments estimator for model. Optionally
+    return true expression and residuals if interested in
+    model checking.
 
     The algorithm is due to Fuller 1987, pp. 13-15
+
 
     """
     if sigma_u is None:
@@ -37,7 +41,7 @@ def _moment_estimator(expression, phenotype, sigma_u=None):
     n = phenotype.shape[0]
     phenotype_mean = numpy.mean(phenotype)
     expression_mean = numpy.mean(expression)
-    phenotype_expression_cov = sum((p - phenotype_mean) * (e - expression_mean) for p, e in zip(phenotype, expression)) / n
+    phenotype_expression_cov = sum([(p - phenotype_mean) * (e - expression_mean) for p, e in zip(phenotype, expression)]) / n
     expression_var = numpy.var(expression) - expression_error_var
     coeff = phenotype_expression_cov / expression_var
     phenotype_var = numpy.var(phenotype)
@@ -49,7 +53,17 @@ def _moment_estimator(expression, phenotype, sigma_u=None):
     psuedo_residual_var = sum((p - phenotype_mean - (e - expression_mean) * coeff) ** 2 for p, e in zip(phenotype, expression)) / (n - 2)
     coeff_var = (expression_var * psuedo_residual_var + coeff ** 2 * expression_error_var) / (n - 1)
     se = math.sqrt(coeff_var)
-    return coeff, se
+    if not model_check:
+        return coeff, se
+    else:
+        intercept = numpy.mean(phenotype) - coeff*numpy.mean(expression)
+        true_expression_ratio = (1./(coeff*coeff*expression_error_var + equation_error_var))
+        true_expression = [true_expression_ratio*(expression_error_var*(p - intercept)*coeff + equation_error_var*e)
+                            for p, e in zip(phenotype, expression)]
+        residuals = [p - intercept - e*coeff
+                    for p, e in zip(phenotype, expression)]
+        return coeff, se, true_expression, residuals
+
 
 def _regression_calibration(model, expression, phenotype, sigma_u=None):
     """Compute regression calibration estimates for model given expression,
@@ -87,7 +101,7 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         coeff_cov = M.dot(H).dot(M)
         coeff, se = fit.params[1], coeff_cov[1, 1]
         return coeff, se
-        
+
 def t(expression, phenotype, sigma_u=None):
     """Test for association of continuous phenotype to expression."""
     coeff, se =  _moment_estimator(expression, phenotype, sigma_u)
@@ -97,3 +111,4 @@ def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
     coeff, se = _regression_calibration(statsmodels.api.Logit, expression, phenotype, sigma_u)
     return se, _chi2(coeff * coeff / (se * se))
+
