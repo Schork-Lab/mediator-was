@@ -3,6 +3,7 @@
 Author: Abhishek Sarkar <aksarkar@mit.edu>
 
 """
+from __future__ import print_function
 import math
 import pdb
 import sys
@@ -48,7 +49,7 @@ def _moment_estimator(expression, phenotype, sigma_u=None):
     psuedo_residual_var = sum((p - phenotype_mean - (e - expression_mean) * coeff) ** 2 for p, e in zip(phenotype, expression)) / (n - 2)
     coeff_var = (expression_var * psuedo_residual_var + coeff ** 2 * expression_error_var) / (n - 1)
     se = math.sqrt(coeff_var)
-    return se, _chi2(coeff * coeff / (se * se))
+    return coeff, se
 
 def _regression_calibration(model, expression, phenotype, sigma_u=None):
     """Compute regression calibration estimates for model given expression,
@@ -84,12 +85,15 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         H = delta.T.dot(delta) / (expression.shape[0] * (expression.shape[0] - 2))
         M = numpy.linalg.inv(expression_cov)
         coeff_cov = M.dot(H).dot(M)
-        return math.sqrt(coeff_cov[1, 1]), _chi2(fit.params[1] * fit.params[1] / coeff_cov[1, 1])
-
+        coeff, se = fit.params[1], coeff_cov[1, 1]
+        return coeff, se
+        
 def t(expression, phenotype, sigma_u=None):
     """Test for association of continuous phenotype to expression."""
-    return _moment_estimator(expression, phenotype, sigma_u)
+    coeff, se =  _moment_estimator(expression, phenotype, sigma_u)
+    return se, _chi2(coeff * coeff / (se * se))
 
 def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
-    return _regression_calibration(statsmodels.api.Logit, expression, phenotype, sigma_u)
+    coeff, se = _regression_calibration(statsmodels.api.Logit, expression, phenotype, sigma_u)
+    return se, _chi2(coeff * coeff / (se * se))
