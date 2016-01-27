@@ -1,6 +1,7 @@
 """Compute TWAS p-values, corrected for prediction error
 
 Author: Abhishek Sarkar <aksarkar@mit.edu>
+        Kunal Bhutani   <kunalbhutani@gmail.com>
 
 """
 from __future__ import print_function
@@ -105,7 +106,7 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
 def t(expression, phenotype, sigma_u=None):
     """Test for association of continuous phenotype to expression."""
     coeff, se =  _moment_estimator(expression, phenotype, sigma_u)
-    return se, _chi2(coeff * coeff / (se * se))
+    return coeff, se, _chi2(coeff * coeff / (se * se))
 
 def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
