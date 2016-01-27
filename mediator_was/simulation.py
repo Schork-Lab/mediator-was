@@ -1,7 +1,7 @@
 """Simulate a TWAS study.
 
 Author: Abhishek Sarkar <aksarkar@mit.edu>
-
+	Kunal Bhutani	<kunalbhutani@gmail.com>
 """
 from __future__ import print_function
 
@@ -18,7 +18,7 @@ import sklearn.metrics
 
 from mediator_was.association import *
 
-Gene = collections.namedtuple('Gene', ['maf', 'beta', 'pve', 'pve_se'])
+Gene = collections.namedtuple('Gene', ['maf', 'beta', 'pve'])
 Phenotype = collections.namedtuple('Phenotype', ['beta', 'genes', 'pve'])
 
 def _add_noise(genetic_value, pve):
@@ -31,7 +31,7 @@ def _add_noise(genetic_value, pve):
     sigma = numpy.sqrt(numpy.var(genetic_value) * (1 / pve - 1))
     return genetic_value + R.normal(size=genetic_value.shape, scale=sigma)
 
-def _generate_gene_params(n_causal_eqtls, pve=0.17, pve_se=0.05):
+def _generate_gene_params(n_causal_eqtls, pve=0.05):
     """Return a vector of minor allele frequencies and a vector of effect sizes.
 
     The average PVE by cis-genotypes on gene expression is 0.17. Assume the
@@ -40,7 +40,7 @@ def _generate_gene_params(n_causal_eqtls, pve=0.17, pve_se=0.05):
     """
     maf = R.uniform(size=n_causal_eqtls, low=0.05, high=0.5)
     beta = R.normal(size=n_causal_eqtls)
-    return Gene(maf, beta, pve, pve_se)
+    return Gene(maf, beta, pve)
 
 def _generate_phenotype_params(n_causal_genes=100, n_causal_eqtls=10, pve=0.2):
     """Return causal gene effects and cis-eQTL parameters for causal genes.
@@ -64,10 +64,7 @@ def _simulate_gene(params, n=1000, center=True):
     genotypes = R.binomial(2, params.maf, size=(n, params.maf.shape[0])).astype(float)
     if center:
         genotypes -= numpy.mean(genotypes, axis=0)[numpy.newaxis,:]
-    pve = R.normal(params.pve, params.pve_se)
-    if pve <= 0: # Negative contribution of genotype to expression
-        pve = 0.01
-    expression = _add_noise(numpy.dot(genotypes, params.beta), pve)
+    expression = _add_noise(numpy.dot(genotypes, params.beta), params.pve)
     return genotypes, expression
 
 class Simulation(object):
@@ -146,14 +143,14 @@ class Simulation(object):
                 w = numpy.mean(predicted_expression, axis=0)
                 sigma_ui = numpy.var(predicted_expression, axis=0)
                 sigma_u = numpy.mean(sigma_ui)
-            naive_coeff, naive_se, naive_p = t(w, phenotype)
-            corrected_coeff, corrected_se, corrected_p = t(w, phenotype, sigma_u)
-            true_coeff, true_se, true_p = t(e, phenotype)
+            naive_se, naive_p = t(w, phenotype)
+            corrected_se, corrected_p = t(w, phenotype, sigma_u)
+            true_se, true_p = t(e, phenotype)
             outputs = [naive_p, corrected_p, true_p,
                        numpy.var(predicted_expression) - numpy.mean(sigma_u),
                        numpy.mean(sigma_u),
                        p.pve,
-                       ]
+            ]
             print('\t'.join('{:.3g}'.format(o) for o in outputs))
 
 @contextlib.contextmanager

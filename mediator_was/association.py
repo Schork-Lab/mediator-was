@@ -18,12 +18,54 @@ import statsmodels.tools
 # Freeze this for efficiency
 _chi2 = scipy.stats.chi2(1).sf
 
+
+def _standardize(values, center=True, unit_variance=True):
+    if center:
+        values = values - numpy.mean(values)
+    if unit_variance:
+        values = values / numpy.std(values)
+    return values
+
 def gwas(genotypes, phenotype):
     """Compute the best GWAS p-value in the locus"""
     if len(genotypes.shape) == 1:
         return t(genotypes, phenotype)[1]
     else:
         return min(t(g, phenotype)[1] for g in genotypes.T)
+
+
+def _moment_estimator_2(expression, phenotype, sigma_u=None):
+    '''Compute robust moment estimator based on Fuller pp. 166-170. 
+    It is less impacted by high error expression variance.
+    '''
+    if sigma_u is None:
+        expression_error_var = 0
+    else:
+        expression_error_var = numpy.mean(sigma_u)
+   
+    n = phenotype.shape[0]
+    expression = expression - numpy.mean(expression)
+    phenotype = phenotype - numpy.mean(phenotype)
+    expression_var = numpy.var(expression, ddof=1)
+    phenotype_var = numpy.var(phenotype, ddof=1)
+    phenotype_expression_covar = sum((p * e) for p, e in zip(phenotype, expression)) / (n-1)
+    lambda_hat = (expression_var - phenotype_expression_covar**2/phenotype_var)
+    lambda_hat /= expression_error_var
+    alpha = 4-2*((expression_var - expression_error_var)/expression_var)
+    #alpha = 2
+    if lambda_hat >= (1 + 1.0/(n+1)):
+        H_hat_xx = expression_var - expression_error_var
+    else:
+        H_hat_xx = expression_var - (lambda_hat - 1/(n+1))*expression_error_var
+    coeff = 1/(H_hat_xx + alpha*expression_error_var/(n+1))
+    coeff *= phenotype_expression_covar
+    sigma_vv = phenotype_var - 2*coeff*phenotype_expression_covar + coeff*coeff*expression_var
+    sigma_vv *= (n+1)/(n+2)
+    coeff_var = sigma_vv/H_hat_xx
+    coeff_var += (H_hat_xx**-2)*(expression_error_var*sigma_vv + coeff**2*expression_error_var**2)    
+    coeff_var /= n+1
+    se = numpy.sqrt(coeff_var)
+    return coeff, se
 
 def _moment_estimator(expression, phenotype, sigma_u=None,
                       model_check=False):
@@ -100,16 +142,19 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         H = delta.T.dot(delta) / (expression.shape[0] * (expression.shape[0] - 2))
         M = numpy.linalg.inv(expression_cov)
         coeff_cov = M.dot(H).dot(M)
-        coeff, se = fit.params[1], coeff_cov[1, 1]
+        coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
         return coeff, se
 
-def t(expression, phenotype, sigma_u=None):
+def t(expression, phenotype, sigma_u=None, method="i"):
     """Test for association of continuous phenotype to expression."""
-    coeff, se =  _moment_estimator(expression, phenotype, sigma_u)
+    if method == "i":
+        coeff, se =  _moment_estimator(expression, phenotype, sigma_u)
+    else:
+        coeff, se =  _moment_estimator_2(expression, phenotype, sigma_u)
+    #coeff, se =  _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
     return coeff, se, _chi2(coeff * coeff / (se * se))
 
 def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
     coeff, se = _regression_calibration(statsmodels.api.Logit, expression, phenotype, sigma_u)
     return se, _chi2(coeff * coeff / (se * se))
-
