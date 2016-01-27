@@ -1,7 +1,7 @@
 """Simulate a TWAS study.
 
 Author: Abhishek Sarkar <aksarkar@mit.edu>
-
+        Kunal Bhutani   <kunalbhutani@gmail.com>
 """
 from __future__ import print_function
 
@@ -15,11 +15,32 @@ import numpy
 import numpy.random as R
 import sklearn.linear_model
 import sklearn.metrics
+import pandas
 
 from mediator_was.association import *
 
-Gene = collections.namedtuple('Gene', ['maf', 'beta', 'pve', 'pve_se'])
+Gene = collections.namedtuple('Gene', ['maf', 'haps', 'beta', 'pve', 'pve_se'])
 Phenotype = collections.namedtuple('Phenotype', ['beta', 'genes', 'pve'])
+
+
+def _load_hapgen(hap_file):
+    """Load in a HapGen2 generated haplotypes file.
+    """
+    haps = pandas.read_table(hap_file, sep=" ", header=None)
+    return haps
+
+def _generate_gene_haps(haps, n_causal_eqtls, 
+                   min_maf=0.05, max_maf=0.5):
+    """
+    Generate gene specific haplotypes based on a haplotype dataframe
+    restricted to a minor allele frequency range and total number
+    of causal snps
+    """
+    maf = haps.apply(lambda x: numpy.sum(x)/len(x), axis=1)
+    loci = numpy.where((maf > min_maf) & (maf < max_maf))[0]
+    loci = numpy.random.choice(loci, size=n_causal_eqtls)
+    haps = haps.ix[loci]
+    return haps
 
 def _add_noise(genetic_value, pve):
     """Add Gaussian noise to genetic values to achieve desired PVE.
@@ -31,18 +52,22 @@ def _add_noise(genetic_value, pve):
     sigma = numpy.sqrt(numpy.var(genetic_value) * (1 / pve - 1))
     return genetic_value + R.normal(size=genetic_value.shape, scale=sigma)
 
-def _generate_gene_params(n_causal_eqtls, pve=0.17, pve_se=0.05):
-    """Return a vector of minor allele frequencies and a vector of effect sizes.
-
+def _generate_gene_params(n_causal_eqtls, hap_df=None, pve=0.17, pve_se=0.05):
+    """Return a matrix of haplotypes or a vector minor allele frequencies and a vector of effect sizes.
     The average PVE by cis-genotypes on gene expression is 0.17. Assume the
     average number of causal cis-eQTLs is 10.
 
     """
-    maf = R.uniform(size=n_causal_eqtls, low=0.05, high=0.5)
+    if hap_df is not None:
+        haps = _generate_gene_haps(hap_df, n_causal_eqtls)
+        maf = None
+    else:
+        haps = None
+        maf = R.uniform(size=n_causal_eqtls, low=0.05, high=0.5)
     beta = R.normal(size=n_causal_eqtls)
-    return Gene(maf, beta, pve, pve_se)
+    return Gene(maf, haps, beta, pve, pve_se)
 
-def _generate_phenotype_params(n_causal_genes=100, n_causal_eqtls=10, pve=0.2):
+def _generate_phenotype_params(n_causal_genes=100, n_causal_eqtls=10, pve=0.2, hapgen=None):
     """Return causal gene effects and cis-eQTL parameters for causal genes.
 
     Each gene has an effect size sampled from N(0, 1). For each gene, generate
@@ -52,7 +77,8 @@ def _generate_phenotype_params(n_causal_genes=100, n_causal_eqtls=10, pve=0.2):
 
     """
     beta = R.normal(size=n_causal_genes)
-    genes = [_generate_gene_params(n_causal_eqtls) for _ in beta]
+    hap_df = _load_hapgen(hapgen)
+    genes = [_generate_gene_params(n_causal_eqtls, hap_df) for _ in beta]
     return Phenotype(beta, genes, pve)
 
 def _simulate_gene(params, n=1000, center=True):
@@ -61,7 +87,10 @@ def _simulate_gene(params, n=1000, center=True):
     n - number of individuals
 
     """
-    genotypes = R.binomial(2, params.maf, size=(n, params.maf.shape[0])).astype(float)
+    if params.maf is not None:
+        genotypes = R.binomial(2, params.maf, size=(n, params.maf.shape[0])).astype(float)
+    else:
+        genotypes = params.haps[R.random_integers(low=0, high=params.haps.shape[1]-2, size=n)].T.values.astype(float)
     if center:
         genotypes -= numpy.mean(genotypes, axis=0)[numpy.newaxis,:]
     pve = R.normal(params.pve, params.pve_se)
@@ -71,14 +100,23 @@ def _simulate_gene(params, n=1000, center=True):
     return genotypes, expression
 
 class Simulation(object):
-    def __init__(self, n_causal_genes=100, n_causal_eqtls=10, n_train=None):
-        """Initialize a new simulation"""
+    def __init__(self, n_causal_genes=100, n_causal_eqtls=10, n_train=None,
+                 hapgen=None):
+        """Initialize a new simulation.
+
+        There are two ways to generate the genotypes:
+
+        1. Use indepdent genotypes generated using a maf range of 0.05 to 0.5
+        2. Use hapgen2 generated haps file using the full path set using hapgen  
+        
+        hapgen - path to the hapgen2 generated haps file. Default: None
+        """
         R.seed(0)
         if n_train is None:
             n_train = numpy.repeat(1000, 4)
         elif numpy.isscalar(n_train):
             n_train = numpy.array([n_train])
-        self.params = _generate_phenotype_params(n_causal_genes, n_causal_eqtls)
+        self.params = _generate_phenotype_params(n_causal_genes, n_causal_eqtls, hapgen=hapgen)
         self.models = list(zip(*[self._train(n) for n in n_train]))
         self.eqtls = self._eqtls(n_train[0])
 
@@ -146,6 +184,10 @@ class Simulation(object):
                 w = numpy.mean(predicted_expression, axis=0)
                 sigma_ui = numpy.var(predicted_expression, axis=0)
                 sigma_u = numpy.mean(sigma_ui)
+            if sigma_u > numpy.var(w):
+                # TODO: Not sure if necessary to handle this.
+                print("Warning: sigma_u less than sigma_w")
+                continue
             naive_coeff, naive_se, naive_p = t(w, phenotype)
             corrected_coeff, corrected_se, corrected_p = t(w, phenotype, sigma_u)
             true_coeff, true_se, true_p = t(e, phenotype)
