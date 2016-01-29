@@ -162,7 +162,7 @@ class Simulation(object):
     def simulate_independent_phenotype(self, n=50000):
         """Simulate phenotype with independent effects at causal eQTLs"""
         def phenotype(n, genotypes, expression):
-            genetic_value = sum(numpy.dot(g, R.normal(size=p.freq.shape))
+            genetic_value = sum(numpy.dot(g, R.normal(size=p.beta.shape))
                                 for g, p in zip(genotypes, self.params.genes))
             return _add_noise(genetic_value, self.params.pve)
         return self._test(phenotype, n)
@@ -202,7 +202,7 @@ class Simulation(object):
             print('\t'.join('{:.3g}'.format(o) for o in outputs))
 
 @contextlib.contextmanager
-def simulation(n_causal_eqtls, n_train):
+def simulation(n_causal_eqtls, n_train, hapgen=None):
     """Retrieve a cached simulation, or run one if no cached simulation exists.
 
     Sample n_models training cohorts to learn linear models of gene expression.
@@ -219,7 +219,7 @@ def simulation(n_causal_eqtls, n_train):
             sim = pickle.load(f)
             hit = True
     except:
-        sim = Simulation(n_causal_eqtls=n_causal_eqtls, n_train=n_train)
+        sim = Simulation(n_causal_eqtls=n_causal_eqtls, n_train=n_train, hapgen=hapgen)
     try:
         yield sim
     except Exception as e:

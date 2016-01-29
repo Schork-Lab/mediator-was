@@ -18,8 +18,7 @@ import statsmodels.tools
 # Freeze this for efficiency
 _chi2 = scipy.stats.chi2(1).sf
 
-
-def _standardize(values, center=True, unit_variance=True):
+def standardize(values, center=True, unit_variance=True):
     if center:
         values = values - numpy.mean(values)
     if unit_variance:
@@ -29,9 +28,9 @@ def _standardize(values, center=True, unit_variance=True):
 def gwas(genotypes, phenotype):
     """Compute the best GWAS p-value in the locus"""
     if len(genotypes.shape) == 1:
-        return t(genotypes, phenotype)[1]
+        return t(genotypes, phenotype, method="OLS")[2]
     else:
-        return min(t(g, phenotype)[1] for g in genotypes.T)
+        return min(t(g, phenotype, method="OLS")[2] for g in genotypes.T)
 
 
 def _moment_estimator_2(expression, phenotype, sigma_u=None):
@@ -145,13 +144,20 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
         return coeff, se
 
-def t(expression, phenotype, sigma_u=None, method="i"):
+def t(expression, phenotype, sigma_u=None, method="moment"):
     """Test for association of continuous phenotype to expression."""
-    if method == "i":
-        coeff, se =  _moment_estimator(expression, phenotype, sigma_u)
+    if method == "moment":
+        coeff, se = _moment_estimator(expression, phenotype, sigma_u)
+    elif method == "moment2":
+        coeff, se = _moment_estimator_2(expression, phenotype, sigma_u)
+    elif method == "rc":
+        coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
+    elif method == "OLS":
+        design = statsmodels.tools.add_constant(expression)
+        fit = statsmodels.api.OLS(phenotype, design).fit()
+        coeff, se = fit.params[1], fit.bse[1]
     else:
-        coeff, se =  _moment_estimator_2(expression, phenotype, sigma_u)
-    #coeff, se =  _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
+        raise NotImplementedError
     return coeff, se, _chi2(coeff * coeff / (se * se))
 
 def lr(expression, phenotype, sigma_u=None):
