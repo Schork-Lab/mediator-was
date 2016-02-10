@@ -1,18 +1,25 @@
-#+TITLE: Modeling prediction error improves power of transcriptome-wide association studies
-#+DATE: 
-#+AUTHOR: Kunal Bhutani, Abhishek Sarkar, Nicholas J. Schork, Manolis Kellis
-#+EMAIL: 
-#+LANGUAGE: en
-#+SELECT_TAGS: export
-#+EXCLUDE_TAGS: noexport
-#+CREATOR: Emacs 24.5.1 (Org mode 8.3.2)
-#+OPTIONS: ':nil *:t -:t ::t <:t H:3 \n:nil ^:t arch:headline author:t c:nil
-#+OPTIONS: creator:nil d:(not "LOGBOOK") date:t e:t email:nil f:t inline:t
-#+OPTIONS: num:t p:nil pri:nil prop:nil stat:t tags:t tasks:t tex:t
-#+OPTIONS: timestamp:t title:t toc:nil todo:t |:t
-#+LATEX_CLASS: article
-#+LATEX_HEADER: \usepackage{amsmath}
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{fontspec}
+\usepackage{xunicode}
+\usepackage[backend=biber,date=year,doi=false,isbn=false,style=nature,url=false]{biblatex}
+\usepackage[xetex]{hyperref}
+\usepackage{rotating}
+\usepackage{parskip}
+\usepackage[letterpaper]{geometry}
 
+\author{Kunal Bhutani, Abhishek Sarkar, Nicholas J. Schork, Manolis Kellis}
+\date{}
+\title{Modeling prediction error improves power of transcriptome-wide association studies}
+
+\addbibresource{/home/asarkar/research/mit/reading/reading.bib}
+
+\begin{document}
+
+\maketitle
 Thousands of loci associated with hundreds of complex diseases have been
 reported in the NHGRI catalog of genome-wide association studies
 \cite{10.1093/nar/gkt1229} (GWASs). However, most genome-wide significant loci
@@ -37,86 +44,78 @@ propagate this error through TWAS. We show through simulation and application
 to real data that our method improves power to detect genes associated with
 phenotype.
 
-* Results
-** Simulation study
-** Application to WTCCC diseases
-* Discussion
-* Methods
-** Additive measurement error model
+\section{Results}
 
-We assume a continuous phenotype $y_i$ on n individuals and regress phenotype
-on predicted expression $w_i$ for each gene. For ease of exposition, we first
+\subsection{Simulation study}
+
+\subsection{Application to WTCCC diseases}
+
+\section{Discussion}
+
+\section{Methods}
+
+\subsection{Additive measurement error model}
+
+We assume a continuous phenotype \(y_i\) on n individuals and regress phenotype
+on predicted expression \(w_i\) for each gene. For ease of exposition, we first
 describe a model with no additional covariates. The results readily apply to
 generalized linear models, so we use logistic regression for binary phenotypes.
 
-#+BEGIN_LaTeX
 \begin{align*}
   y_i &= \beta_0 + \beta_1 w_i + \epsilon_i\\
   \epsilon_i &= \text{error in equation}\\
   y_i &= \text{phenotype of individual $i$}\\
   w_i &= \text{predicted expression of individual $i$}\\
 \end{align*}
-#+END_LaTeX
 
 We assume additive measurement error on the predicted expression value:
 
-#+BEGIN_LaTeX
 \begin{align*}
   w_i &= x_i + u_i\\
   x_i &= \text{true expression (latent) of individual $i$}\\
   u_i &= \text{error in predicted expression of individual $i$}\\
 \end{align*}
-#+END_LaTeX
 
 We assume measurement errors have mean 0 and finite variance:
 
-#+BEGIN_LaTeX
 \begin{align*}
   E[u_i] &= 0\\
   V[u_i] &= \sigma_{ui}^2\\
 \end{align*}
-#+END_LaTeX
 
-Under these assumptions, the naive estimators $\hat\beta_0$ and $\hat\beta_1$
+Under these assumptions, the naive estimators \(\hat\beta_0\) and \(\hat\beta_1\)
 are biased because the error in equation becomes correlated with the predicted
 expression:
 
-#+BEGIN_LaTeX
 \begin{equation}
   y_i = \beta_0 + \beta_1 x_i + (\epsilon_i - \beta_1 u_i)
 \end{equation}
-#+END_LaTeX
 
-Specifically, $\hat\beta_1$ is biased towards zero by a multiplicative factor,
+Specifically, \(\hat\beta_1\) is biased towards zero by a multiplicative factor,
 which leads to loss of power to detect significant effects on phenotype:
 
-#+BEGIN_LaTeX
 \begin{align*}
   \hat\beta_1 &= \frac{\sigma_x^2}{\sigma_x^2 + \sigma_u^2} \beta_1 = \kappa \beta_1\\
   \sigma_x^2 &= \text{variance of true expression}\\
   \sigma_u^2 &= \text{variance of errors in predicted expression}\\
 \end{align*}
-#+END_LaTeX
 
-Given $\hat\sigma_{ui}^2$, we can correct the naive estimates using regression
-calibration. We regress $y_i$ on $\hat x_i = \bar w - \hat\kappa (w_i - \bar
-w)$, yielding estimates $\hat\beta^*$. We describe how to estimate
-$\hat\sigma_{ui}^2$ below.
+Given \(\hat\sigma_{ui}^2\), we can correct the naive estimates using regression
+calibration. We regress \(y_i\) on \(\hat x_i = \bar w - \hat\kappa (w_i - \bar
+w)\), yielding estimates \(\hat\beta^*\). We describe how to estimate
+\(\hat\sigma_{ui}^2\) below.
 
-To estimate an association $$p$$-value, we perform a Wald test:
+To estimate an association \(p\)-value, we perform a Wald test:
 
-#+BEGIN_LaTeX
 \begin{align*}
   \theta &= \left(\frac{\hat\beta_1^*}{SE(\hat\beta_1^*)}\right)^2 \sim \chi^2(\theta; 1)\\
   H_0&: \theta = 0\\
   H_1&: \theta > 0\\
 \end{align*}
-#+END_LaTeX
 
-In order to estimate the covariance of $\hat\beta^*$, we use the robust
+In order to estimate the covariance of \(\hat\beta^*\), we use the robust
 estimator of Fuller (1987):
 
-#+BEGIN_LaTeX
 \begin{align*}
   M_{XX} &= \frac{W' W}{n} - \hat\Sigma_u\\
   W &= \text{$n \times p$ design matrix (including intercept)}\\
@@ -126,24 +125,52 @@ estimator of Fuller (1987):
   H &= \frac{1}{n(n - p)} \sum_i \Delta_i \Delta_i'\\
   \Sigma_\beta &= M_{XX}^{-1} H M_{XX}^{-1}\\
 \end{align*}
-#+END_LaTeX
 
-** Estimating prediction errors
+\subsection{Estimating prediction errors}
 
 Given pre-computed weights for linear models of cis-heritable gene
-expression trained in $m$ different cohorts, we estimate $\hat\sigma_{ui}^2$ as:
+expression trained in \(m\) different cohorts, we estimate \(\hat\sigma_{ui}^2\) as:
 
-#+BEGIN_LaTeX
 \begin{align*}
   \bar y_i &= \frac{1}{m} \sum_j y_i^{(j)}\\
   \hat\sigma_{ui}^2 &= \frac{1}{m - 1} \sum_j (y_i^{(j)} - \bar y_i)^2\\
 \end{align*}
-#+END_LaTeX
 
 We have m=4 replicates of predicted expression (METSIM, YFS, NTR, GTEx).
 
-Given one training cohort, we estimate $$\hat\sigma_{ui}^2$$ using standard
-errors from the linear model (*this is hard*).
+Given one training cohort, we estimate \(\hat\sigma_{ui}^2\) using standard
+errors from the linear model (\textbf{this is hard}).
 
-** Data processing
-** Simulation
+\subsection{Simulation}
+
+100 causal genes
+
+\(p\) causal eQTLs per gene
+
+Draw unlinked genotypes
+
+PVE = 0.17 per gene
+
+Generate phenotype as linear combination of total expression of causal genes
+
+PVE = 0.2
+
+Simulate four training cohorts with n = 1000. Train linear regression (since we
+only have causal variants).
+
+Estimate power by fixing n, p and simulating 10 test cohorts. Compute GWAS
+p-value, eGWAS p-value, naive TWAS p-value, corrected TWAS p-value
+
+Estimate Type I error by simulating two null phenotypes:
+
+\begin{enumerate}
+\item No link between eQTLs and phenotype: Gaussian noise
+\item eQTLs are causal, but expression does not mediate phenotype (independent
+effect size)
+\end{enumerate}
+
+\subsection{Data processing}
+
+\clearpage
+\printbibliography
+\end{document}
