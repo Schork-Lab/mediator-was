@@ -2,10 +2,9 @@
 Analysis of our predictions before incorporating them into  association methods
 """
 
-import helpers as h
 import pandas as pd
-import plotting
-
+import mediator_was.prediction.plotting
+from mediator_was.prediction.predict import stream
 
 class Predictions():
     def __init__(self, vcf, weights={},
@@ -24,8 +23,8 @@ class Predictions():
             self.predict()
 
     def predict(self):
-        for method, weights in self.weights.iteritems():
-            predictions_df = h.stream_predict(weights, self.vcf)
+        for method, weights in self.weights.items():
+            predictions_df = stream(weights, self.vcf, 'vcf')
             self.predictions[method] = predictions_df
 
     def load(fn):
