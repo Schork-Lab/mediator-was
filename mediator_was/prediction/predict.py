@@ -24,11 +24,10 @@ def _convert_chrom(chrom):
 
 def _opener(file_name):
     if file_name.endswith('.gz'):
-        opener = gzip.open
+        return gzip.open(file_name, 'rt')
     else:
-        opener = open
-    return opener(file_name)
-
+        return open(file_name)
+    
 
 def _max_locus(locus1, locus2):
     '''
@@ -47,8 +46,9 @@ def _max_locus(locus1, locus2):
         return locus2
 
 
-def _is_match((ref1, alt1),
-              (ref2, alt2)):
+def _is_match(loci1, loci2):
+    ref1, alt1 = loci1
+    ref2, alt2 = loci2
     return (ref1 == ref2) and (alt1 == alt2)
 
 
@@ -124,12 +124,12 @@ def stream(weight_file, genotype_file, genotype_filetype):
     '''
 
     # Prepare weights
-    weights = pd.read_table(weight_file, sep=" ")
+    weights = pd.read_table(weight_file, sep="\t")
+    print(weights.columns)
     required_columns = set(['gene', 'beta',
-                            'chromosome', 'position', 'rsid',
-                            'ref', 'alt'])
+                            'chromosome', 'position'])
     column_match = len(required_columns.intersection(weights.columns))
-    assert column_match == 7, "All required columns not found"
+    assert column_match == 4, "All required columns not found"
     weights['chromosome'] = weights.chromosome.map(_convert_chrom)
     weights = weights.sort(['chromosome', 'position'])
     weights.index = range(len(weights))
@@ -165,29 +165,30 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 max_locus = _max_locus(gen_locus, entry_locus)
 
             while max_locus == 'Equal':  # Synced
-                weights_ref, weights_alt = entry['ref'], entry['alt']
-                if not _is_match((gen_ref, gen_alt),
-                                 (weights_ref, weights_alt)):
-                    print 'Non-matching reference and alt:'
-                    print chrom, position, entry['rsid']
-                    print gen_ref, gen_alt
-                    print weights_ref, weights_alt
-                    # See if order is switched
-                    if not _is_match((gen_alt, gen_ref),
-                                     (weights_ref, weights_alt)):
-                        print 'Skipping entry'
-                        break  # Break out of while loop
-                    else:
-                        # Switch the order
-                        # print 'Switching reference and alt:'
-                        # print chrom, position
+                
+                # weights_ref, weights_alt = entry['ref'], entry['alt']
+                # if not _is_match((gen_ref, gen_alt),
+                #                  (weights_ref, weights_alt)):
+                #     print 'Non-matching reference and alt:'
+                #     print chrom, position, entry['rsid']
+                #     print gen_ref, gen_alt
+                #     print weights_ref, weights_alt
+                #     # See if order is switched
+                #     if not _is_match((gen_alt, gen_ref),
+                #                      (weights_ref, weights_alt)):
+                #         print 'Skipping entry'
+                #         break  # Break out of while loop
+                #     else:
+                #         # Switch the order
+                #         # print 'Switching reference and alt:'
+                #         # print chrom, position
 
-                        # Switch genotypes
-                        if genotype_file == 'vcf':
-                            data = parser(line, alt_allele='0')
-                            alt_alleles = data[-1]
-                        else:
-                            alt_alleles = 2 - alt_alleles  # Assumes no missing
+                #         # Switch genotypes
+                #         if genotype_file == 'vcf':
+                #             data = parser(line, alt_allele='0')
+                #             alt_alleles = data[-1]
+                #         else:
+                #             alt_alleles = 2 - alt_alleles  # Assumes no missing
 
                 gene = entry['gene']
                 beta = entry['beta']
@@ -203,7 +204,7 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 max_locus = _max_locus(gen_locus, entry_locus)
 
             if db_index % 10000 == 0:
-                print '%d processed out of %d' % (db_index, len(weights))
+                print(db_index, 'processed out of', len(weights))
 
         predicted_weights = pd.DataFrame.from_dict(predicted_expression,
                                                    orient='index')
