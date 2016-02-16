@@ -47,6 +47,16 @@ def parse_studies():
     Parses all studies in the BSLMM data.
     '''
     study_data = {}
+    dbsnp_df = pd.read_table(dbsnp, compression='gzip')
+    columns = ['id', 'chromosome', 'start', 'end', 'rsid']
+    columns += list(dbsnp_df.columns[5:])
+    dbsnp_df.columns = columns
     for study in studies:
-        study_data[study[0]] = load_study(study)
+        study_df = load_study(study)
+        study_df = study_df.merge(dbsnp_df[['id', 'chromosome', 'start', 'end', 'rsid']],
+                                    left_on='SNP_ID', right_on='rsid',
+                                    how='inner')
+        study_df.rename(columns={'SNP_Pos': 'position', 'Gene': 'gene'}, inplace=True)
+        study_data[study[0]] = study_df
     return study_data
+m
