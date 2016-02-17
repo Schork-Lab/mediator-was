@@ -180,7 +180,7 @@ def _moment_estimator(expression, phenotype, sigma_u=None,
         return coeff, se, true_expression, residuals
 
 
-def _regression_calibration(model, expression, phenotype, sigma_u=None):
+def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic=True):
     """Compute regression calibration estimates for model given expression,
     phenotype, and estimated errors.
 
@@ -194,28 +194,53 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
 
     """
     design = statsmodels.tools.add_constant(expression)
-    if sigma_u is None:
-        f = model(phenotype, design).fit()
-        assert f.pvalues.shape == (2,)
-        return f.bse[1], f.pvalues[1]
-    else:
-        n = phenotype.shape[0]
+    n = phenotype.shape[0]
+    if homoscedastic:
         error_cov = numpy.array([[0, 0], [0, numpy.mean(sigma_u)]])
         # TODO: this could be "negative". See Buonaccorsi p. 121
-        expression_cov = design.T.dot(design) / n - error_cov
-        expr_phen_cov = design.T.dot(phenotype) / n
-        # TODO: handle heteroskedastic error
-        reliability = numpy.linalg.inv(expression_cov + error_cov).dot(expression_cov)
+        expression_cov = numpy.cov(design.T, ddof=1) - error_cov
+        if expression_cov[1,1] < 0:
+            #print("Warning: correcting negative estimate", file=sys.stderr)
+            return 0, 1
+        # Hack to make reliability make sense
+        expression_cov[0,0] = 1
+        try:
+            reliability = numpy.linalg.inv(expression_cov + error_cov).dot(expression_cov)
+        except:
+            print(expression_cov, error_cov)
         mu_x = numpy.tile(numpy.mean(design, axis=0), reps=(n, 1))
         imputed_expression = mu_x + (design - mu_x).dot(reliability)
         fit = model(phenotype, imputed_expression).fit()
         pseudo_residuals = phenotype - numpy.dot(design, fit.params)
         delta = pseudo_residuals[:,numpy.newaxis] * design + error_cov.dot(fit.params)
-        H = delta.T.dot(delta) / (expression.shape[0] * (expression.shape[0] - 2))
+        H = delta.T.dot(delta) / (n * (n - design.shape[1]))
         M = numpy.linalg.inv(expression_cov)
         coeff_cov = M.dot(H).dot(M)
         coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
-        return coeff, se
+    else:
+
+        # Speed up so fewer computations
+        expression_cov = numpy.var(expression, ddof=1) - numpy.mean(sigma_u)
+        if expression_cov < 0:
+            #print("Warning: correcting negative estimate", file=sys.stderr)
+            return 0, 1
+        mu_x = numpy.mean(design, axis=0)
+        imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * wi]
+                                          for ui, wi in zip(sigma_u, expression)])
+        fit = model(phenotype, imputed_expression).fit()
+        pseudo_residuals = phenotype - numpy.dot(design, fit.params)
+        error_matrix = numpy.array([numpy.array([[0, 0], [0, ui]]).dot(fit.params) for ui in sigma_u])
+        delta = pseudo_residuals[:,numpy.newaxis] * design + error_matrix
+        H = delta.T.dot(delta) / (n * (n - design.shape[1]))
+        error_cov = numpy.array([[0, 0], [0, numpy.mean(sigma_u)]])
+        # TODO: this could be "negative". See Buonaccorsi p. 121
+        expression_cov = numpy.cov(design.T, ddof=1) - error_cov
+        expression_cov[0, 0] = 1
+        M = numpy.linalg.inv(expression_cov)
+        coeff_cov = M.dot(H).dot(M)
+        coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
+
+    return coeff, se
 
 def t(expression, phenotype, sigma_u=None, method="OLS"):
     """Test for association of continuous phenotype to expression."""
@@ -227,6 +252,8 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
         coeff, se = _moment_estimator_buonaccorsi(expression, phenotype, sigma_u)
     elif method == "rc":
         coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
+    elif method == "rc-hetero":
+        coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u, homoscedastic=False)
     elif method == "OLS":
         design = statsmodels.tools.add_constant(expression)
         fit = statsmodels.api.OLS(phenotype, design).fit()
