@@ -141,7 +141,7 @@ class Simulation(object):
         eqtls = []
         for p, m in zip(self.params.genes, self.models):
             genotypes, expression = _simulate_gene(params=p, n=n)
-            eqtls.append(min((t(g, expression)[1], i) for i, g in enumerate(genotypes.T))[1])
+            eqtls.append(min((t(g, expression, method="OLS")[2], i) for i, g in enumerate(genotypes.T))[1])
         return eqtls
 
     def _test(self, method, n=50000):
