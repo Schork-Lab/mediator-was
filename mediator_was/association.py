@@ -33,22 +33,21 @@ def gwas(genotypes, phenotype):
     else:
         return min(t(g, phenotype, method="OLS")[2] for g in genotypes.T)
 
-def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, num_replicates=4):
+def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=True, num_replicates=4):
     '''
     Moment estimator based on Chapter 5 Buonaccorsi.
     '''
     n = phenotype.shape[0]
 
     S_WW = numpy.var(expression, ddof=1)
-    sigma_u = numpy.mean(sigma_u)
-    Sigma_hat_XX = S_WW - sigma_u
+    constant_sigma_u = numpy.mean(sigma_u)
+    Sigma_hat_XX = S_WW - constant_sigma_u
     Sigma_hat_XY = numpy.cov(expression, phenotype, ddof=1)[0, 1]
     
     # Eq 5.9
     coeff = Sigma_hat_XY / Sigma_hat_XX 
     intercept = numpy.mean(phenotype) - coeff*numpy.mean(expression) 
     coeff_column = numpy.array([intercept, coeff])
-    coeff_column.shape = (2, 1)
 
     # Eq 5.11
     residual_variance = numpy.sum([numpy.power(D_i - (intercept + coeff*W_i), 2)
@@ -58,21 +57,20 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, num_replicates
 
   
     design = statsmodels.tools.add_constant(expression)
-    Sigma_hat_u = numpy.array([[0, 0], [0, sigma_u]])
+    Sigma_hat_u = numpy.array([[0, 0], [0, constant_sigma_u]])
     M_hat_XX = numpy.dot(design.T, design) / n - Sigma_hat_u
     M_hat_XY = numpy.dot(design.T, phenotype) / n
 
     # Robust Moment Estimator
     # Eq 5.12
-    pseudo_residuals = phenotype - numpy.dot(design, coeff_column).T
-    # Hacky, because numpy shape matching is weird.
-    # Unclear best way to do matrix subtraction using numpy a
-    constant_error = numpy.array(Sigma_hat_u.dot(coeff_column))
-    constant_error.shape = (2, 1)
-    constant_error = numpy.tile(constant_error, reps=n).T
+    pseudo_residuals = phenotype - numpy.dot(design, coeff_column)
 
-    delta = pseudo_residuals.T*design - constant_error
-    H = delta.T.dot(delta) / (n*n)
+    if homoscedastic:
+        error_matrix = Sigma_hat_u.dot(coeff_column)
+    else:
+        error_matrix = numpy.array([numpy.array([[0, 0], [0, u]]).dot(coeff_column) for u in sigma_u])
+    delta = pseudo_residuals[:,numpy.newaxis]*design - error_matrix
+    H = delta.T.dot(delta) / (n*(n-design.shape[1]))
     M = numpy.linalg.inv(M_hat_XX)
     coeff_cov = M.dot(H).dot(M)
     se = numpy.sqrt(coeff_cov[1, 1])
@@ -144,23 +142,31 @@ def _moment_estimator(expression, phenotype, sigma_u=None,
 
     """
     if sigma_u is None:
-        expression_error_var = 0
+        error_var = 0
     else:
-        expression_error_var = numpy.mean(sigma_u)
+        error_var = numpy.mean(sigma_u)
     n = phenotype.shape[0]
-    phenotype_mean = numpy.mean(phenotype)
-    expression_mean = numpy.mean(expression)
-    phenotype_expression_cov = sum([(p - phenotype_mean) * (e - expression_mean) for p, e in zip(phenotype, expression)]) / n
-    expression_var = numpy.var(expression) - expression_error_var
+
+    sample_expression_var = numpy.var(expression, ddof=1)
+    phenotype_expression_cov = numpy.cov(expression, phenotype, ddof=1)[0,1]
+    
+    # Eq 1.2.3
+    expression_var =  sample_expression_var - error_var
     coeff = phenotype_expression_cov / expression_var
-    phenotype_var = numpy.var(phenotype)
-    equation_error_var =  phenotype_var - coeff * coeff * expression_var
+    phenotype_var = numpy.var(phenotype, ddof=1)
+
+    # Eq 1.2.4
+    equation_error_var =  phenotype_var*expression_var - phenotype_expression_cov**2
     if equation_error_var < 0:
         print("Warning: correcting negative estimate", file=sys.stderr)
-        expression_var = phenotype_expression_cov / phenotype_var
-        coeff = phenotype_expression_cov / expression_var
+        expression_var = phenotype_expression_cov ** 2 / phenotype_var
+        coeff = phenotype_var / phenotype_expression_cov
+        return 0, 1
+
+    phenotype_mean = numpy.mean(phenotype)
+    expression_mean = numpy.mean(expression)
     psuedo_residual_var = sum((p - phenotype_mean - (e - expression_mean) * coeff) ** 2 for p, e in zip(phenotype, expression)) / (n - 2)
-    coeff_var = (expression_var * psuedo_residual_var + coeff ** 2 * expression_error_var) / (n - 1)
+    coeff_var = (sample_expression_var * psuedo_residual_var + coeff ** 2 * error_var ** 2) / ((n - 1) * expression_var ** 2)
     se = math.sqrt(coeff_var)
     if not model_check:
         return coeff, se
@@ -211,12 +217,14 @@ def _regression_calibration(model, expression, phenotype, sigma_u=None):
         coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
         return coeff, se
 
-def t(expression, phenotype, sigma_u=None, method="moment"):
+def t(expression, phenotype, sigma_u=None, method="OLS"):
     """Test for association of continuous phenotype to expression."""
     if method == "moment":
         coeff, se = _moment_estimator(expression, phenotype, sigma_u)
     elif method == "moment2":
-        coeff, se = _moment_estimator_2(expression, phenotype, sigma_u)
+        coeff, se = _moment_estimator_buonaccorsi(expression, phenotype, sigma_u)
+    elif method == "momentbuo":
+        coeff, se = _moment_estimator_buonaccorsi(expression, phenotype, sigma_u)
     elif method == "rc":
         coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
     elif method == "OLS":
