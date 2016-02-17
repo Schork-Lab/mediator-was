@@ -9,6 +9,7 @@ import math
 import pdb
 import sys
 
+
 import numpy
 import numpy.linalg
 import scipy.stats
@@ -32,6 +33,72 @@ def gwas(genotypes, phenotype):
     else:
         return min(t(g, phenotype, method="OLS")[2] for g in genotypes.T)
 
+def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, num_replicates=4):
+    '''
+    Moment estimator based on Chapter 5 Buonaccorsi.
+    '''
+    n = phenotype.shape[0]
+
+    S_WW = numpy.var(expression, ddof=1)
+    sigma_u = numpy.mean(sigma_u)
+    Sigma_hat_XX = S_WW - sigma_u
+    Sigma_hat_XY = numpy.cov(expression, phenotype, ddof=1)[0, 1]
+    
+    # Eq 5.9
+    coeff = Sigma_hat_XY / Sigma_hat_XX 
+    intercept = numpy.mean(phenotype) - coeff*numpy.mean(expression) 
+    coeff_column = numpy.array([intercept, coeff])
+    coeff_column.shape = (2, 1)
+
+    # Eq 5.11
+    residual_variance = numpy.sum([numpy.power(D_i - (intercept + coeff*W_i), 2)
+                                   for D_i, W_i in zip(phenotype, expression)])
+    residual_variance /= (n - 1)
+    residual_variance -= coeff * coeff * sigma_u
+
+  
+    design = statsmodels.tools.add_constant(expression)
+    Sigma_hat_u = numpy.array([[0, 0], [0, sigma_u]])
+    M_hat_XX = numpy.dot(design.T, design) / n - Sigma_hat_u
+    M_hat_XY = numpy.dot(design.T, phenotype) / n
+
+    # Robust Moment Estimator
+    # Eq 5.12
+    pseudo_residuals = phenotype - numpy.dot(design, coeff_column).T
+    # Hacky, because numpy shape matching is weird.
+    # Unclear best way to do matrix subtraction using numpy a
+    constant_error = numpy.array(Sigma_hat_u.dot(coeff_column))
+    constant_error.shape = (2, 1)
+    constant_error = numpy.tile(constant_error, reps=n).T
+
+    delta = pseudo_residuals.T*design - constant_error
+    H = delta.T.dot(delta) / (n*n)
+    M = numpy.linalg.inv(M_hat_XX)
+    coeff_cov = M.dot(H).dot(M)
+    se = numpy.sqrt(coeff_cov[1, 1])
+
+
+    # Normal based with constant, estimated measurement error parameters.
+    # Eq. 5.14
+    # individual_residual_variance = numpy.tile(residual_variance + coeff*coeff*sigma_u, reps=n)
+    # if individual_residual_variance.any() < 0:
+    #     individual_residual_variance = 0
+
+    # coeff_column = numpy.array([intercept, coeff])
+    # coeff_column.shape = (2, 1)
+    # Z = numpy.tile(-1*numpy.dot(Sigma_hat_u, coeff_column), reps=n)
+    # Z = Z.T
+    # H_hat_N = numpy.sum([numpy.dot(design[i,:], design[i, :].T)*individual_residual_variance + numpy.dot(Z[i, :], Z[i,:].T)
+    #                      for i in range(n)])
+    # H_hat_N /= n*n
+    # MSE_c = numpy.sum([numpy.power(D_i - (intercept + coeff*W_i), 2) 
+    #                   for D_i, W_i in zip(phenotype, expression)]) / (n - 1)
+    # H_hat_NC = H_hat_N
+    # H_hat_NC += (Sigma_hat_u*(residual_variance - MSE_c) + Z.T.dot(Z))/(n * n * (num_replicates-1))
+    # coeff_cov = numpy.linalg.inv(M_hat_XX).dot(H_hat_NC).dot(M_hat_XX)
+    # se = numpy.sqrt(coeff_cov[1, 1])
+
+    return coeff, se
 
 def _moment_estimator_2(expression, phenotype, sigma_u=None):
     '''Compute robust moment estimator based on Fuller pp. 166-170. 
