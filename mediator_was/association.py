@@ -33,6 +33,55 @@ def gwas(genotypes, phenotype):
     else:
         return min(t(g, phenotype, method="OLS")[2] for g in genotypes.T)
 
+def _weighted_moment_estimator(expression, phenotype, sigma_u):
+    '''
+    Weighted moment estimator based on p. 123 Buonaccorsi
+    '''
+
+    # Fit regular moment estimator and get residual variance
+    n = phenotype.shape[0]
+    design = statsmodels.tools.add_constant(expression)
+    S_WW = numpy.var(expression, ddof=1)
+    constant_sigma_u = numpy.mean(sigma_u)
+    Sigma_hat_XX = S_WW - constant_sigma_u
+    Sigma_hat_XY = numpy.cov(expression, phenotype, ddof=1)[0, 1]
+    
+    # Eq 5.9
+    coeff = Sigma_hat_XY / Sigma_hat_XX 
+    intercept = numpy.mean(phenotype) - coeff*numpy.mean(expression) 
+    coeff_column = numpy.array([intercept, coeff])
+
+    # Eq 5.11
+    residual_variance = numpy.sum([numpy.power(D_i - (intercept + coeff*W_i), 2)
+                                   for D_i, W_i in zip(phenotype, expression)])
+    residual_variance /= (n - 2)
+    residual_variance -= coeff * coeff * numpy.mean(sigma_u)
+
+    # 5.14 Calculate \sigma_e and weights \pi for each sample.
+    sigma_e = numpy.array([residual_variance + coeff*coeff*ui for ui in sigma_u])
+    pi = 1./sigma_e
+    
+    # Calculate coefficients p. 123
+    M_hat_XXpi = numpy.sum(pi[i]*design[i,:,numpy.newaxis]*design[i,:] - numpy.array([[0, 0],[0, ui]])
+                       for i, ui in enumerate(sigma_u))/n
+    M_hat_XYpi = numpy.sum(pi[i]*design[i,:,numpy.newaxis]*phenotype[i]
+                       for i in range(n))/n
+    M_hat_XXpi_inv = numpy.linalg.inv(M_hat_XXpi)
+    coeffs = M_hat_XXpi_inv.dot(M_hat_XYpi)
+    coeffs.shape = (2)
+
+    # Calculate coefficients covariance
+    error_matrix = numpy.array([numpy.array([[0, 0], [0, ui]]).dot(coeffs) for ui in sigma_u])
+    pseudo_residuals = phenotype - numpy.dot(design, coeffs)
+    delta = pseudo_residuals[:,numpy.newaxis]*design - error_matrix
+    delta = pi[:,numpy.newaxis] * delta
+    H_hat_Rpi = delta.T.dot(delta) / (n*(n-design.shape[1]))
+    coeff_cov = M_hat_XXpi_inv.dot(H_hat_Rpi).dot(M_hat_XXpi_inv)
+    coeff = coeffs[1]
+    se = numpy.sqrt(coeff_cov[1,1])
+    return coeff, se
+
+
 def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=True, num_replicates=4):
     '''
     Moment estimator based on Chapter 5 Buonaccorsi.
@@ -52,13 +101,15 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=
     # Eq 5.11
     residual_variance = numpy.sum([numpy.power(D_i - (intercept + coeff*W_i), 2)
                                    for D_i, W_i in zip(phenotype, expression)])
-    residual_variance /= (n - 1)
+    residual_variance /= (n - 2)
     residual_variance -= coeff * coeff * sigma_u
 
   
     design = statsmodels.tools.add_constant(expression)
     Sigma_hat_u = numpy.array([[0, 0], [0, constant_sigma_u]])
     M_hat_XX = numpy.dot(design.T, design) / n - Sigma_hat_u
+    if M_hat_XX[1, 1] < 0:
+        return 0, 1
     M_hat_XY = numpy.dot(design.T, phenotype) / n
 
     # Robust Moment Estimator
@@ -254,6 +305,8 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
         coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
     elif method == "rc-hetero":
         coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u, homoscedastic=False)
+    elif method == "weighted":
+        coeff, se = _weighted_moment_estimator(expression, phenotype, sigma_u)
     elif method == "OLS":
         design = statsmodels.tools.add_constant(expression)
         fit = statsmodels.api.OLS(phenotype, design).fit()
