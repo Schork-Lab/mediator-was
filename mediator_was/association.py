@@ -122,7 +122,10 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=
         error_matrix = numpy.array([numpy.array([[0, 0], [0, u]]).dot(coeff_column) for u in sigma_u])
     delta = pseudo_residuals[:,numpy.newaxis]*design - error_matrix
     H = delta.T.dot(delta) / (n*(n-design.shape[1]))
-    M = numpy.linalg.inv(M_hat_XX)
+    try:
+        M = numpy.linalg.inv(M_hat_XX)
+    except:
+        return 0, 1 
     coeff_cov = M.dot(H).dot(M)
     se = numpy.sqrt(coeff_cov[1, 1])
 
@@ -310,6 +313,12 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
     elif method == "OLS":
         design = statsmodels.tools.add_constant(expression)
         fit = statsmodels.api.OLS(phenotype, design).fit()
+        coeff, se = fit.params[1], fit.bse[1]
+    elif method == "WLS":
+        design = statsmodels.tools.add_constant(expression)
+        sigma_u = numpy.sqrt(sigma_u)
+        weights = 1./sigma_u
+        fit = statsmodels.api.WLS(phenotype, design, weights=weights).fit()
         coeff, se = fit.params[1], fit.bse[1]
     else:
         raise NotImplementedError
