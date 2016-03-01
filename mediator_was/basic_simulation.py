@@ -11,16 +11,19 @@ import numpy
 import numpy.random as R
 from mediator_was.association import *
 
-def generate_association(pve=None, n_samples=5000, beta=1):
+def generate_association(pve=None, x=None, n_samples=5000, beta=1):
     '''
     Generate X and Y based on user-provided association (default beta: 1).
 
-    X ~ N(0,1)
+    X ~ N(0,1) or sampled from a given list of X
 
     If pve is None, assume independence between the two, and generate 
     Y ~ N(0,1) otherwise Y ~ (betaX, variance determined by pve)
     '''
-    x = R.normal(size=n_samples)
+    if x:
+        x = R.choice(x, size=n_samples)
+    else:
+        x = R.normal(size=n_samples)
     if pve:
         y = beta*x
         sigma_y = numpy.sqrt(numpy.var(y) * (1 / pve - 1))
@@ -43,20 +46,20 @@ def add_uncertainty(x, sigma_u, sigma_u_std=None):
     '''
     n_samples = x.shape[0]
     if not sigma_u_std:
-        w = x + R.normal(size=n_samples, scale=numpy.sqrt(sigma_u))
+        w = x + R.normal(size=n_samples, scale=numpy.sqrt(sigma_u)+.00000001)
         sigma_u = numpy.tile(sigma_u, reps=n_samples)
     else: # Note that this is heteroscedastic, but still non linear.
-        sigma_u = abs(R.normal(sigma_u, scale=sigma_u_std, size=n_samples))
+        sigma_u = abs(R.normal(sigma_u, scale=sigma_u_std+0.0000001, size=n_samples))
         w = [xi+R.normal(scale=numpy.sqrt(sigma_ui))
             for xi, sigma_ui in zip(x, sigma_u) ]
     return w, sigma_u
 
-def model_generator(pve, n_samples=5000):
+def model_generator(pve, x=None, n_samples=5000):
     '''
     Generator for creating new measurements of X based on true X* and Y*
     generated once using the provided pve.
     '''
-    x, y = generate_association(pve, n_samples)
+    x, y = generate_association(pve, x=None, n_samples=n_samples)
     while True:
         sigma_u, sigma_u_std = yield
         w, sigma_ui = add_uncertainty(x, sigma_u, sigma_u_std)
@@ -78,7 +81,9 @@ def trial(model, sigma_u, error_type='homoscedastic'):
     w, y, sigma_ui = model.send([sigma_u, sigma_u_std])
     results = {'OLS': t(w, y, method="OLS"),
                'WLS': t(w, y, sigma_ui, method="WLS"),
-               'Moment-Buo': t(w, y, sigma_ui, method="moment2"),
+               'Moment': t(w, y, sigma_ui, method="moment"),
+               'Moment2': t(w, y, sigma_ui, method="moment2"),
+               'Moment-Buo': t(w, y, sigma_ui, method="momentbuo"),
                'RC': t(w, y, sigma_ui, method="rc"),
                'RC-hetero': t(w, y, sigma_ui, method="rc-hetero"),
                'Weighted': t(w, y, sigma_ui, method="weighted")}
@@ -110,7 +115,7 @@ def simulate_model(model, sigma_u_list=[0.5], n_trials=500):
     statistics_df['wald'] = statistics_df['coeff']**2 / statistics_df['se']**2
     return statistics_df
 
-def run_simulation(pve_list=[0.001], sigma_u_list=[0.5], n_samples=5000, n_models=500, n_trials=50):
+def run_simulation(pve_list=[0.001], sigma_u_list=[0.5], x=None, n_samples=5000, n_models=500, n_trials=50):
     '''
     Run both homoscedastic and heteroscedatic simulation for the provided model and sigma_u_list.
     Return a multindex pandas DataFrame:
@@ -118,7 +123,7 @@ def run_simulation(pve_list=[0.001], sigma_u_list=[0.5], n_samples=5000, n_model
         columns = ['coeff', 'se', 'wald', 'pvalue']
     '''
     def run_model(pve, i):
-        model = model_generator(pve, n_samples)
+        model = model_generator(pve, x, n_samples)
         model_df = simulate_model(model, sigma_u_list, n_trials)
         idx_names = model_df.index.names
         index = tuple(model_df.index)
