@@ -13,21 +13,21 @@ class Predictions():
         # Calculate or load predicted values
         self.predictions = {}
         if predicted_files:
-            for method, fn in predicted_files.iteritems():
+            for method, fn in predicted_files.items():
                 self.predictions[method] = self.load(fn)
         else:
             error = "Calculating Predictions requires vcf and weights"
             assert vcf is not None and weights is not None, error
             self.vcf = vcf
             self.weights = weights
-            self.predict()
 
     def predict(self):
         for method, weights in self.weights.items():
+            print('Predicting for {}'.format(method))
             predictions_df = stream(weights, self.vcf, 'vcf')
             self.predictions[method] = predictions_df
 
-    def load(fn):
+    def load(self, fn):
         if fn.endswith('.gz'):
             compression = 'gzip'
         else:

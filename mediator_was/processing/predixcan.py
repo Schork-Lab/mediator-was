@@ -44,8 +44,9 @@ def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
 
     en_df = pd.read_table(fn, sep="\t")
     en_df = en_df[en_df.alpha == alpha]
-    en_df['chromosome'] = en_df['chr']
-    en_df['position'] = en_df['end']
     en_df.index = range(len(en_df))
-
+    en_df.rename(columns={'refAllele': 'ref', 
+                          'chr': 'chromosome', 
+                          'end': 'position'},
+                 inplace=True)
     return en_df
