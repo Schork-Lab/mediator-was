@@ -15,7 +15,7 @@ en_db = os.path.join(main_dir,
                      config['data']['predixcan']['files']['database'])
 
 
-def add_positions_to_database(en_db=en_db,
+def add_positions_to_database(en_df,
                               dbsnp=dbsnp,
                               fn=os.path.join(main_dir, "EN.withpos.tsv")):
     '''
@@ -24,19 +24,19 @@ def add_positions_to_database(en_db=en_db,
     file.
     '''
 
-    en_df = pd.read_table(en_db)  # Elastic Net DF
-    dbsnp_df = pd.read_table(dbsnp, compression='gzip')
+    dbsnp_df = pd.read_table(dbsnp, compression='gzip', header=None)
     columns = ['id', 'chr', 'start', 'end', 'rsid']
     columns += list(dbsnp_df.columns[5:])
     dbsnp_df.columns = columns
-    en_df = en_df.merge(dbsnp_df[['id', 'chr', 'start', 'end', 'rsid']],
+    dbsnp_df = dbsnp_df[['id', 'chr', 'start', 'end', 'rsid']]
+    dbsnp_df = dbsnp_df.drop_duplicates('rsid')
+    en_df = en_df.merge(dbsnp_df,
                         left_on='rsid', right_on='rsid',
                         how='inner')
-    en_df.to_csv(fn, sep="\t", index=False)
-    return fn
+    return en_df
 
 
-def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
+def load_database(fn=en_db,
                   alpha=1.0):
     '''
     Load database
@@ -44,9 +44,7 @@ def load_database(fn=os.path.join(main_dir, "EN.withpos.tsv"),
 
     en_df = pd.read_table(fn, sep="\t")
     en_df = en_df[en_df.alpha == alpha]
+    en_df = add_positions_to_database(en_df)
     en_df.index = range(len(en_df))
-    en_df.rename(columns={'refAllele': 'ref', 
-                          'chr': 'chromosome', 
-                          'end': 'position'},
-                 inplace=True)
+    en_df.rename(columns={'refAllele': 'ref', 'chr': 'chromosome', 'end': 'position'}, inplace=True)
     return en_df

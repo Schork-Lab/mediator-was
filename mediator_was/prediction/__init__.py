@@ -7,7 +7,7 @@ import mediator_was.prediction.plotting
 from mediator_was.prediction.predict import stream
 
 class Predictions():
-    def __init__(self, vcf, weights={},
+    def __init__(self, vcf=None, weights={},
                  predicted_files=None):
 
         # Calculate or load predicted values
@@ -27,7 +27,7 @@ class Predictions():
             predictions_df = stream(weights, self.vcf, 'vcf')
             self.predictions[method] = predictions_df
 
-    def load(self, fn):
+    def load(self, fn, gtex=True):
         if fn.endswith('.gz'):
             compression = 'gzip'
         else:
@@ -36,4 +36,6 @@ class Predictions():
                                      index_col=0,
                                      compression=compression,
                                      sep='\t')
+        if gtex:
+            predicted_df.columns = predicted_df.columns.map(lambda x: "-".join(x.split('-')[:2]))
         return predicted_df
