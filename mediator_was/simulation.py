@@ -123,17 +123,23 @@ class Simulation(object):
         self.models = list(zip(*[self._train(n) for n in n_train]))
         self.eqtls = self._eqtls(n_train[0])
 
-    def _train(self, n=1000, model=sklearn.linear_model.LinearRegression):
+    def _train(self, n=1000, model=statsmodels.api.OLS):
         """Train models on each cis-window.
 
         n - number of individuals
         model - sklearn estimator
 
         """
-        models = [model() for _ in self.params.genes]
-        for p, m in zip(self.params.genes, models):
+        # models = [model() for _ in self.params.genes]
+        # for p, m in zip(self.params.genes, models):
+        #     genotypes, expression = _simulate_gene(params=p, n=n)
+        #     m.fit(genotypes, expression)
+        models = []
+        for p in self.params.genes:
             genotypes, expression = _simulate_gene(params=p, n=n)
-            m.fit(genotypes, expression)
+            design = statsmodels.tools.add_constant(genotypes)
+            models.append(model(expression, design).fit())
+
         return models
 
     def _eqtls(self, n=1000):
@@ -202,7 +208,7 @@ class Simulation(object):
             print('\t'.join('{:.3g}'.format(o) for o in outputs))
 
 @contextlib.contextmanager
-def simulation(n_causal_eqtls, n_train, hapgen=None):
+def simulation(n_causal_eqtls, n_train, n_causal_genes, hapgen=None):
     """Retrieve a cached simulation, or run one if no cached simulation exists.
 
     Sample n_models training cohorts to learn linear models of gene expression.
@@ -212,14 +218,14 @@ def simulation(n_causal_eqtls, n_train, hapgen=None):
     against predicted expression.
 
     """
-    key = 'simulation-{}-{}.pkl'.format(n_causal_eqtls, n_train)
+    key = 'simulation-{}-{}-{}.pkl'.format(n_causal_eqtls, n_train, n_causal_genes)
     hit = False
     try:
         with open(key, 'rb') as f:
             sim = pickle.load(f)
             hit = True
     except:
-        sim = Simulation(n_causal_eqtls=n_causal_eqtls, n_train=n_train, hapgen=hapgen)
+        sim = Simulation(n_causal_genes=n_causal_genes, n_causal_eqtls=n_causal_eqtls, n_train=n_train, hapgen=hapgen)
     try:
         yield sim
     except Exception as e:
