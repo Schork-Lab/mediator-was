@@ -106,6 +106,23 @@ def _parser_oxstats(line):
         alt_counts.append(alt_count)
     return chromosome, position, ref, alt, alt_counts
 
+def _parser_dosage(line):
+    if line.startswith('CHR'):
+        return '0', '0', '0', '0', [0]
+    data = line.rstrip().split()
+    chromosome = data[0]
+    position = data[3]
+    ref = data[4]
+    alt = data[5]
+    ignore_missing = lambda x: int(x) if x != 'NA' else 0
+    alt_counts = map(ignore_missing, data[6:])
+    return chromosome, position, ref, alt, alt_counts
+
+def _get_samples_dosage(genotype_file):
+    with _opener(genotype_file) as IN:
+        line = IN.next()
+        samples = line.rstrip().split()[6:]
+    return samples
 
 def _get_samples_oxstats(genotype_file):
     sample_file = genotype_file.replace('.gen', '.samples')
@@ -147,6 +164,9 @@ def stream(weight_file, genotype_file, genotype_filetype):
     elif genotype_filetype == 'oxstats':
         parser = _parser_oxstats
         samples = _get_samples_oxstats(genotype_file)
+    elif genotype_filetype == 'dosage':
+        parser = _parser_dosage
+        samples = _get_samples_dosage(genotype_file)
     predicted_expression = defaultdict(lambda: np.zeros(len(samples)))
 
     # Iterate through genotype file
@@ -189,11 +209,12 @@ def stream(weight_file, genotype_file, genotype_filetype):
                     else:
                         # Switch the order
                         #print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
-                         # Switch genotypes
+                        # Switch genotypes
                         if genotype_filetype == 'vcf':
                             data = parser(line, alt_allele='0')
                             alt_alleles = data[-1]
                         else:
+                            # TODO: Figure out how to deal with missing for this case.
                             alt_alleles = 2 - alt_alleles  # Assumes no missing
 
                 gene = entry['gene']
@@ -216,3 +237,11 @@ def stream(weight_file, genotype_file, genotype_filetype):
                                                    orient='index')
         predicted_weights.columns = samples
         return predicted_weights
+
+if __name__ == '__main__':
+    if len(sys.argv) < 5:
+        print('Usage: predict.py weights_file genotype_file genotype_filetype{vcf, oxstats, dosage} out_file')
+    	exit()
+    df = stream(sys.argv[1], sys.argv[2], sys.argv[3])
+    df.to_csv(sys.argv[4], sep="\t")
+    
