@@ -146,6 +146,7 @@ def stream(weight_file, genotype_file, genotype_filetype):
 
     # Prepare weights
     weights = pd.read_table(weight_file, sep="\t")
+    print(weights.columns)
     required_columns = set(['gene', 'beta',
                             'chromosome', 'position'])
     column_match = len(required_columns.intersection(weights.columns))
@@ -153,9 +154,8 @@ def stream(weight_file, genotype_file, genotype_filetype):
     weights['chromosome'] = weights.chromosome.map(_convert_chrom)
     weights = weights.sort(['chromosome', 'position'])
     weights.index = range(len(weights))
-    db_index = 0
-    entry = weights.ix[db_index]
-    entry_locus = (entry['chromosome'], entry['position'])
+
+
 
     # Prepare genotype file
     if genotype_filetype == 'vcf':
@@ -168,6 +168,11 @@ def stream(weight_file, genotype_file, genotype_filetype):
         parser = _parser_dosage
         samples = _get_samples_dosage(genotype_file)
     predicted_expression = defaultdict(lambda: np.zeros(len(samples)))
+
+    # Sync to entry 0 for weights db
+    db_index = 0
+    entry = weights.ix[db_index]
+    entry_locus = (entry['chromosome'], entry['position'])
 
     # Iterate through genotype file
     with _opener(genotype_file) as IN:
@@ -197,16 +202,10 @@ def stream(weight_file, genotype_file, genotype_filetype):
                     # print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
                     # print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
                     # See if order is switched 
-                    if _is_match((gen_ref, gen_alt),  _reverse(weights_ref, weights_alt)):
-                        print("Reverse strand at {}:{}".format(chrom, position), file=sys.stderr)
-                        continue 
-                    elif not _is_match((gen_alt, gen_ref), (weights_ref, weights_alt)):
-                        print('Skipping entry', file=sys.stderr)
-                        print(chrom, position, entry['rsid'], file=sys.stderr)
-                        print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
-                        print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
-                        break  # Break out of while loop
-                    else:
+                    if _is_match((gen_ref, gen_alt), _reverse(weights_ref, weights_alt)):
+                        # print("Reverse strand at {}:{}".format(chrom, position), file=sys.stderr)
+                        pass
+                    elif _is_match((gen_alt, gen_ref), (weights_ref, weights_alt)):
                         # Switch the order
                         #print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
                         # Switch genotypes
@@ -216,6 +215,13 @@ def stream(weight_file, genotype_file, genotype_filetype):
                         else:
                             # TODO: Figure out how to deal with missing for this case.
                             alt_alleles = 2 - alt_alleles  # Assumes no missing
+                    else:
+                        # print('Skipping entry', file=sys.stderr)
+                        # print(chrom, position, entry['rsid'], file=sys.stderr)
+                        # print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
+                        # print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
+                        break  # Break out of while loop
+
 
                 gene = entry['gene']
                 beta = entry['beta']
@@ -230,8 +236,8 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 entry_locus = (entry['chromosome'], entry['position'])
                 max_locus = _max_locus(gen_locus, entry_locus)
 
-            if db_index % 10000 == 0:
-                print(db_index, 'processed out of', len(weights))
+                if db_index % 15000 == 0:
+                    print(db_index, 'processed out of', len(weights))
 
         predicted_weights = pd.DataFrame.from_dict(predicted_expression,
                                                    orient='index')
