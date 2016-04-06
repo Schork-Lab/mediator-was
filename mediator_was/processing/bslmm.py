@@ -1,8 +1,16 @@
+'''
+Process BSLMM output and Gusev et al. 
+
+TODO: Note that Gusev et al is actually not BSLMM, so should refactor it to a different
+      location.
+'''
+
 # Python libraries
 import os
 # Packages
 import yaml
 import pandas as pd
+import glob
 
 
 # Relative paths
@@ -14,6 +22,25 @@ gencode = config['data']['references']['gencode']
 main_dir = config['data']['bslmm']['dir']
 studies = config['data']['bslmm']['studies'].items()
 
+
+def load_bslmm_output(bslmm_outdir, method='bblup'):
+    def load_gene(gene_dir):
+        bslmm_params = os.path.join(gene_dir, method+'.param.txt')
+        gene = os.path.basename(gene_dir)
+        try:
+            df = pd.read_table(bslmm_params, sep='\t')
+        except OSError:
+            return None
+        df['ref'] = df['rs'].map(lambda x: x.split('_')[2])
+        df['alt'] = df['rs'].map(lambda x: x.split('_')[3])
+        df['beta_old'] = df['beta']
+        df['beta'] = df['alpha']+df['beta_old']*df['gamma']
+        df['gene'] = gene
+        df.rename(columns={'chr':'chromosome', 'ps':'position'}, inplace=True)
+        return df
+    bslmm_df = pd.concat([load_gene(gene_dir) 
+                          for gene_dir in glob.glob(bslmm_outdir+'/*')])
+    return bslmm_df
 
 def load_study(study):
     '''

@@ -28,7 +28,6 @@ def _opener(file_name):
         return gzip.open(file_name, 'rt')
     else:
         return open(file_name)
-    
 
 def _max_locus(locus1, locus2):
     '''
@@ -247,7 +246,7 @@ def stream(weight_file, genotype_file, genotype_filetype):
 if __name__ == '__main__':
     if len(sys.argv) < 5:
         print('Usage: predict.py weights_file genotype_file genotype_filetype{vcf, oxstats, dosage} out_file')
-    	exit()
+        exit()
     df = stream(sys.argv[1], sys.argv[2], sys.argv[3])
     df.to_csv(sys.argv[4], sep="\t")
     
