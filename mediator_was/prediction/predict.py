@@ -154,7 +154,6 @@ def stream(weight_file, genotype_file, genotype_filetype):
 
     # Prepare weights
     weights = pd.read_table(weight_file, sep="\t")
-    print(weights.columns)
     required_columns = set(['gene', 'beta',
                             'chromosome', 'position'])
     column_match = len(required_columns.intersection(weights.columns))
@@ -214,7 +213,7 @@ def stream(weight_file, genotype_file, genotype_filetype):
                         # Switch the order
                         #print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
                         # Switch genotypes
-                        data = parse(line, reverse=True)
+                        data = parser(line, reverse=True)
                         alt_alleles = data[-1]
                     else:
                         # print('Skipping entry', file=sys.stderr)
