@@ -19,7 +19,7 @@ def calculate_alleles(genotype, allele=None):
 
 def gz_aware_open(fn):
     if fn.endswith('.gz'):
-        return gzip.open(fn)
+        return gzip.open(fn, 'rt')
     else:
         return open(fn)
 
@@ -78,7 +78,6 @@ def stream_predict(df, vcf_file):
     df['chromosome'] = df.chromosome.map(convert_chrom)
     df = df.sort(['chromosome', 'position'])
     df.index = range(len(df))
-
     with gz_aware_open(vcf_file) as IN:
         for line in IN:
             # CHROM-POS-ID-REF-ALT-QUAL    FILTER  INFO    FORMAT SAMPLES
@@ -121,26 +120,7 @@ def stream_predict(df, vcf_file):
                     entry_locus = (entry['chromosome'], entry['position'])
             # Equal
             while get_max_locus(vcf_locus, entry_locus) == 'Equal':
-                vcf_ref, vcf_alt = data[3], data[4]
-                db_ref, db_alt = entry['refAllele'], entry['alt']
                 alt_allele = '1'
-                if not is_match(vcf_ref, db_ref, vcf_alt, db_alt):
-                    #
-                    # print 'Non-matching reference and alt:'
-                    # print chrom, position, entry['rsid']
-                    # print vcf_ref, vcf_alt
-                    # print db_ref, db_alt
-                    # See if order is switched
-                    #
-                    if not is_match(vcf_ref, db_alt, vcf_alt, db_ref):
-                        incorrect_entries.append(entry)
-                        break  # Break out of while loop
-                    else:
-                        # Switch the order
-                        # print 'Switching reference and alt:'
-                        # print chrom, position
-                        switched_entries.append(entry)
-                        alt_allele = '0'
                 genotypes = [sample.split(':')[0] for sample in data[9:]]
                 allele_counts = map(calculate_alleles,
                                     genotypes)
@@ -158,10 +138,10 @@ def stream_predict(df, vcf_file):
                 entry = df.ix[db_index]
                 entry_locus = (entry['chromosome'], entry['position'])
 
-        print 'Total', db_index
-        print 'Not Found', len(entries_not_found)
-        print 'Incorrect', len(incorrect_entries)
-        print 'Switched', len(switched_entries)
+        print('Total', db_index)
+        print('Not Found', len(entries_not_found))
+        print('Incorrect', len(incorrect_entries))
+        print('Switched', len(switched_entries))
         predicted_df = pd.DataFrame.from_dict(predicted_expression,
                                               orient='index')
         predicted_df.columns = samples

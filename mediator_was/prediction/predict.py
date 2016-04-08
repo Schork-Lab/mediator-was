@@ -1,4 +1,5 @@
 import gzip
+import sys
 from collections import defaultdict
 import pandas as pd
 import numpy as np
@@ -24,11 +25,10 @@ def _convert_chrom(chrom):
 
 def _opener(file_name):
     if file_name.endswith('.gz'):
-        opener = gzip.open
+        return gzip.open(file_name, 'rt')
     else:
-        opener = open
-    return opener(file_name)
-
+        return open(file_name)
+    
 
 def _max_locus(locus1, locus2):
     '''
@@ -47,8 +47,9 @@ def _max_locus(locus1, locus2):
         return locus2
 
 
-def _is_match((ref1, alt1),
-              (ref2, alt2)):
+def _is_match(loci1, loci2):
+    ref1, alt1 = loci1
+    ref2, alt2 = loci2
     return (ref1 == ref2) and (alt1 == alt2)
 
 
@@ -105,6 +106,23 @@ def _parser_oxstats(line):
         alt_counts.append(alt_count)
     return chromosome, position, ref, alt, alt_counts
 
+def _parser_dosage(line):
+    if line.startswith('CHR'):
+        return '0', '0', '0', '0', [0]
+    data = line.rstrip().split()
+    chromosome = data[0]
+    position = data[3]
+    ref = data[4]
+    alt = data[5]
+    ignore_missing = lambda x: int(x) if x != 'NA' else 0
+    alt_counts = map(ignore_missing, data[6:])
+    return chromosome, position, ref, alt, alt_counts
+
+def _get_samples_dosage(genotype_file):
+    with _opener(genotype_file) as IN:
+        line = IN.next()
+        samples = line.rstrip().split()[6:]
+    return samples
 
 def _get_samples_oxstats(genotype_file):
     sample_file = genotype_file.replace('.gen', '.samples')
@@ -112,6 +130,9 @@ def _get_samples_oxstats(genotype_file):
     samples = sample_df[sample_df.columns[1]]
     return samples
 
+def _reverse(ref, alt):
+    reverse_map = {'C': 'G', 'A': 'T', 'T': 'A', 'G':'C'}
+    return reverse_map[ref], reverse_map[alt]
 
 def stream(weight_file, genotype_file, genotype_filetype):
     '''
@@ -124,18 +145,17 @@ def stream(weight_file, genotype_file, genotype_filetype):
     '''
 
     # Prepare weights
-    weights = pd.read_table(weight_file, sep=" ")
+    weights = pd.read_table(weight_file, sep="\t")
+    print(weights.columns)
     required_columns = set(['gene', 'beta',
-                            'chromosome', 'position', 'rsid',
-                            'ref', 'alt'])
+                            'chromosome', 'position'])
     column_match = len(required_columns.intersection(weights.columns))
-    assert column_match == 7, "All required columns not found"
+    assert column_match == 4, "All required columns not found"
     weights['chromosome'] = weights.chromosome.map(_convert_chrom)
     weights = weights.sort(['chromosome', 'position'])
     weights.index = range(len(weights))
-    db_index = 0
-    entry = weights.ix[db_index]
-    entry_locus = (entry['chromosome'], entry['position'])
+
+
 
     # Prepare genotype file
     if genotype_filetype == 'vcf':
@@ -144,7 +164,15 @@ def stream(weight_file, genotype_file, genotype_filetype):
     elif genotype_filetype == 'oxstats':
         parser = _parser_oxstats
         samples = _get_samples_oxstats(genotype_file)
+    elif genotype_filetype == 'dosage':
+        parser = _parser_dosage
+        samples = _get_samples_dosage(genotype_file)
     predicted_expression = defaultdict(lambda: np.zeros(len(samples)))
+
+    # Sync to entry 0 for weights db
+    db_index = 0
+    entry = weights.ix[db_index]
+    entry_locus = (entry['chromosome'], entry['position'])
 
     # Iterate through genotype file
     with _opener(genotype_file) as IN:
@@ -165,29 +193,35 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 max_locus = _max_locus(gen_locus, entry_locus)
 
             while max_locus == 'Equal':  # Synced
+               
                 weights_ref, weights_alt = entry['ref'], entry['alt']
                 if not _is_match((gen_ref, gen_alt),
                                  (weights_ref, weights_alt)):
-                    print 'Non-matching reference and alt:'
-                    print chrom, position, entry['rsid']
-                    print gen_ref, gen_alt
-                    print weights_ref, weights_alt
-                    # See if order is switched
-                    if not _is_match((gen_alt, gen_ref),
-                                     (weights_ref, weights_alt)):
-                        print 'Skipping entry'
-                        break  # Break out of while loop
-                    else:
+                    # print('Non-matching reference and alt:', file=sys.stderr)
+                    # print(chrom, position, entry['rsid'], file=sys.stderr)
+                    # print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
+                    # print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
+                    # See if order is switched 
+                    if _is_match((gen_ref, gen_alt), _reverse(weights_ref, weights_alt)):
+                        # print("Reverse strand at {}:{}".format(chrom, position), file=sys.stderr)
+                        pass
+                    elif _is_match((gen_alt, gen_ref), (weights_ref, weights_alt)):
                         # Switch the order
-                        # print 'Switching reference and alt:'
-                        # print chrom, position
-
+                        #print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
                         # Switch genotypes
-                        if genotype_file == 'vcf':
+                        if genotype_filetype == 'vcf':
                             data = parser(line, alt_allele='0')
                             alt_alleles = data[-1]
                         else:
+                            # TODO: Figure out how to deal with missing for this case.
                             alt_alleles = 2 - alt_alleles  # Assumes no missing
+                    else:
+                        # print('Skipping entry', file=sys.stderr)
+                        # print(chrom, position, entry['rsid'], file=sys.stderr)
+                        # print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
+                        # print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
+                        break  # Break out of while loop
+
 
                 gene = entry['gene']
                 beta = entry['beta']
@@ -202,10 +236,17 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 entry_locus = (entry['chromosome'], entry['position'])
                 max_locus = _max_locus(gen_locus, entry_locus)
 
-            if db_index % 10000 == 0:
-                print '%d processed out of %d' % (db_index, len(weights))
+                if db_index % 15000 == 0:
+                    print(db_index, 'processed out of', len(weights))
 
         predicted_weights = pd.DataFrame.from_dict(predicted_expression,
                                                    orient='index')
         predicted_weights.columns = samples
         return predicted_weights
+
+if __name__ == '__main__':
+    if len(sys.argv) < 5:
+        print('Usage: predict.py weights_file genotype_file genotype_filetype{vcf, oxstats, dosage} out_file')
+    df = stream(sys.argv[1], sys.argv[2], sys.argv[3])
+    df.to_csv(sys.argv[4], sep="\t")
+    
