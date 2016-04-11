@@ -28,7 +28,6 @@ def _opener(file_name):
         return gzip.open(file_name, 'rt')
     else:
         return open(file_name)
-    
 
 def _max_locus(locus1, locus2):
     '''
@@ -65,7 +64,7 @@ def _get_samples_vcf(fn):
     return samples
 
 
-def _parser_vcf(line, alt_allele='1'):
+def _parser_vcf(line, reverse=False):
     def _calculate_alleles(genotype, allele=None):
         '''
         Helper function to calculate number of alleles
@@ -88,12 +87,16 @@ def _parser_vcf(line, alt_allele='1'):
     genotypes = [sample.split(':')[0] for sample in data[9:]]
     allele_counts = map(_calculate_alleles,
                         genotypes)
+    if reverse:
+        alt_allele = '0'
+    else:
+        alt_allele = '1'
     alt_counts = [count[alt_allele]
                   for count in allele_counts]
     return chromosome, position, ref, alt, alt_counts
 
 
-def _parser_oxstats(line):
+def _parser_oxstats(line, reverse=False):
     data = line.rstrip().split()
     chromosome = data[0]
     position = data[2]
@@ -104,9 +107,11 @@ def _parser_oxstats(line):
         alt_count = 1*float(data[i+1])
         alt_count += 2*float(data[i+2])
         alt_counts.append(alt_count)
+    if reverse:
+        alt_counts = [2-count for count in alt_counts]
     return chromosome, position, ref, alt, alt_counts
 
-def _parser_dosage(line):
+def _parser_dosage(line, reverse=False):
     if line.startswith('CHR'):
         return '0', '0', '0', '0', [0]
     data = line.rstrip().split()
@@ -114,8 +119,11 @@ def _parser_dosage(line):
     position = data[3]
     ref = data[4]
     alt = data[5]
-    ignore_missing = lambda x: int(x) if x != 'NA' else 0
-    alt_counts = map(ignore_missing, data[6:])
+    if reverse:
+        calc_allele_missing = lambda x: 2-float(x) if x != 'NA' else 0
+    else:
+        calc_allele_missing = lambda x: float(x) if x != 'NA' else 0
+    alt_counts = map(calc_allele_missing, data[6:])
     return chromosome, position, ref, alt, alt_counts
 
 def _get_samples_dosage(genotype_file):
@@ -146,7 +154,6 @@ def stream(weight_file, genotype_file, genotype_filetype):
 
     # Prepare weights
     weights = pd.read_table(weight_file, sep="\t")
-    print(weights.columns)
     required_columns = set(['gene', 'beta',
                             'chromosome', 'position'])
     column_match = len(required_columns.intersection(weights.columns))
@@ -154,8 +161,6 @@ def stream(weight_file, genotype_file, genotype_filetype):
     weights['chromosome'] = weights.chromosome.map(_convert_chrom)
     weights = weights.sort(['chromosome', 'position'])
     weights.index = range(len(weights))
-
-
 
     # Prepare genotype file
     if genotype_filetype == 'vcf':
@@ -193,7 +198,6 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 max_locus = _max_locus(gen_locus, entry_locus)
 
             while max_locus == 'Equal':  # Synced
-               
                 weights_ref, weights_alt = entry['ref'], entry['alt']
                 if not _is_match((gen_ref, gen_alt),
                                  (weights_ref, weights_alt)):
@@ -209,19 +213,14 @@ def stream(weight_file, genotype_file, genotype_filetype):
                         # Switch the order
                         #print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
                         # Switch genotypes
-                        if genotype_filetype == 'vcf':
-                            data = parser(line, alt_allele='0')
-                            alt_alleles = data[-1]
-                        else:
-                            # TODO: Figure out how to deal with missing for this case.
-                            alt_alleles = 2 - alt_alleles  # Assumes no missing
+                        data = parser(line, reverse=True)
+                        alt_alleles = data[-1]
                     else:
                         # print('Skipping entry', file=sys.stderr)
                         # print(chrom, position, entry['rsid'], file=sys.stderr)
                         # print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
                         # print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
                         break  # Break out of while loop
-
 
                 gene = entry['gene']
                 beta = entry['beta']
@@ -247,6 +246,6 @@ def stream(weight_file, genotype_file, genotype_filetype):
 if __name__ == '__main__':
     if len(sys.argv) < 5:
         print('Usage: predict.py weights_file genotype_file genotype_filetype{vcf, oxstats, dosage} out_file')
+        exit()
     df = stream(sys.argv[1], sys.argv[2], sys.argv[3])
     df.to_csv(sys.argv[4], sep="\t")
-    
