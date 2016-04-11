@@ -51,15 +51,21 @@ def _add_noise(genetic_value, pve):
     sigma = numpy.sqrt(numpy.var(genetic_value) * (1 / pve - 1))
     return genetic_value + R.normal(size=genetic_value.shape, scale=sigma)
 
-def _generate_gene_params(p_causal_eqtls, hap_df=None, pve=0.17, pve_se=0.05, n_snps=80):
+def _generate_gene_params(p_causal_eqtls, haps=None, pve=0.17, pve_se=0.05, n_snps=80):
     """Return a matrix of haplotypes or a vector minor allele frequencies and a vector of effect sizes.
+    
     The average PVE by cis-genotypes on gene expression is 0.17. Assume the
     average number of causal cis-eQTLs is 10.
 
+    p_causal_eqtls: percentage of causal eqtls
+    haps: haplotypes pandas dataframe (snps x samples)
+    pve: percentage of expression explained by snps
+    pve_se: standard deviation of pve across studies
+    n_snps: number of snps, only used if haps = None
+
     """
-    print(p_causal_eqtls)
-    if hap_df is not None:
-        haps = hap_df
+
+    if haps is not None:
         maf = None
         n_snps = len(haps)
         haps.index = range(n_snps)
@@ -103,9 +109,6 @@ def _simulate_gene(params, n=1000, center=True):
     """Return genotypes at cis-eQTLs and cis-heritable gene expression.
 
     n - number of individuals
-    same_cohort - boolean (default:False), choose the first n individuals
-            so that the training cohort remains the same.
-
     """
     if params.maf is not None:
         genotypes = R.binomial(2, params.maf, size=(n, params.maf.shape[0])).astype(float)
@@ -122,19 +125,20 @@ def _simulate_gene(params, n=1000, center=True):
 
 class Simulation(object):
     def __init__(self, n_causal_genes=100, p_causal_eqtls=.1, 
-                 bootstrap=None, n_train=None,
-                 hapgen=None, plink=None, pve=0.2/50):
+                 bootstrap=(250, 250, 1), n_train=250,
+                 hapgen=None, plink=None, pve=0.2):
         """Initialize a new simulation.
 
         
         There are two ways to train the G -> E models.
 
-        interstudy:
-        n_train - a numpy array specifying # of individuals in different studies
-        
         intrastudy:
         bootstrap - tuple (# samples in study, # samples per bootstrap, # bootstraps) 
                      specifying models using bootstrapped samples from the same study. 
+                    default: (250, 250, 1) - at least one boostrapped model
+        interstudy:
+        n_train - a numpy array specifying # of individuals in different studies
+                    default: 250 
 
         There are three ways to generate the genotypes:
 
@@ -151,29 +155,35 @@ class Simulation(object):
 
         """
         #R.seed(0)
+        self.params = _generate_phenotype_params(n_causal_genes, p_causal_eqtls, 
+                                                 hapgen=hapgen, plink=plink, pve=pve)
+        self.b_models = self._bootstrap_train(bootstrap) # If bo
         if n_train is None:
             n_train = numpy.repeat(1000, 4)
         elif numpy.isscalar(n_train):
             n_train = numpy.array([n_train])
-        self.params = _generate_phenotype_params(n_causal_genes, p_causal_eqtls, 
-                                                 hapgen=hapgen, plink=plink, pve=pve)
         self.models = list(zip(*[self._train(n) for n in n_train]))
-        if bootstrap:
-            self.b_models = self._b_train(bootstrap)
+            #self.eqtls = self._eqtls(n_train[0])
 
-        #self.eqtls = self._eqtls(n_train[0])
+    def _bootstrap_train(self, b_params, model=sklearn.linear_model.ElasticNetCV):
+        """
+        Train bootstrapped models using the model specificied and bootstrap params. Returns
+        models.
 
-    def _b_train(self, bootstrap):
+        bootstrap_params: tuple (# samples in study, # samples per bootstrap, # bootstraps) 
+        """
+        if not b_params:
+            b_params = (250, 250, 1)
+
         b_models = []
         for p in self.params.genes:
-            genotypes, expression = _simulate_gene(params=p, n=bootstrap[0])
+            genotypes, expression = _simulate_gene(params=p, n=b_params[0])
             gene_models = []
-            for i in range(bootstrap[2]):
+            for i in range(b_params[2]):
                 b_genotypes, b_expression = sklearn.utils.resample(genotypes, expression, 
-                                                                   n_samples=bootstrap[1])
-                model = sklearn.linear_model.ElasticNetCV()
-                model.fit(b_genotypes, b_expression)
-                gene_models.append(model)
+                                                                   n_samples=b_params[1])
+                gene_model = model().fit(b_genotypes, b_expression)
+                gene_models.append(gene_model)
             b_models.append(gene_models)
         return b_models
 
@@ -264,7 +274,7 @@ class Simulation(object):
             print('\t'.join('{:.3g}'.format(o) for o in outputs))
 
 @contextlib.contextmanager
-def simulation(p_causal_eqtls, n_train, n_causal_genes, bootstrap=None, hapgen=None, plink=None):
+def simulation(p_causal_eqtls, n_train, n_causal_genes, bootstrap=None, hapgen=None, plink=None, key=None):
     """Retrieve a cached simulation, or run one if no cached simulation exists.
 
     Sample n_models training cohorts to learn linear models of gene expression.
@@ -274,22 +284,21 @@ def simulation(p_causal_eqtls, n_train, n_causal_genes, bootstrap=None, hapgen=N
     against predicted expression.
 
     """
-    key = 'simulation-{}-{}-{}.pkl'.format(p_causal_eqtls, n_train, n_causal_genes)
     hit = False
-    # try:
-    #     with open(key, 'rb') as f:
-    #         sim = pickle.load(f)
-    #         hit = True
-    # except:
-    hit = False
-    sim = Simulation(n_causal_genes=n_causal_genes, p_causal_eqtls=p_causal_eqtls, 
+    try:
+        with open(key, 'rb') as f:
+            sim = pickle.load(f)
+            hit = True
+    except:
+        hit = False
+        sim = Simulation(n_causal_genes=n_causal_genes, p_causal_eqtls=p_causal_eqtls, 
                      n_train=n_train, bootstrap=bootstrap, hapgen=hapgen, plink=plink)
     try:
         yield sim
     except Exception as e:
         raise e
     finally:
-        if not hit:
+        if not hit and key:
             with open(key, 'wb') as f:
                 pickle.dump(sim, f)
 
