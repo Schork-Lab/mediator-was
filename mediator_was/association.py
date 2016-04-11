@@ -119,7 +119,8 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=
     if homoscedastic:
         error_matrix = Sigma_hat_u.dot(coeff_column)
     else:
-        error_matrix = numpy.array([numpy.array([[0, 0], [0, u]]).dot(coeff_column) for u in sigma_u])
+        error_matrix = numpy.array([numpy.array([[0, 0], [0, u]]).dot(coeff_column) 
+                                    for u in sigma_u])
     delta = pseudo_residuals[:,numpy.newaxis]*design - error_matrix
     H = delta.T.dot(delta) / (n*(n-design.shape[1]))
     try:
@@ -254,7 +255,8 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
         # TODO: this could be "negative". See Buonaccorsi p. 121
         expression_cov = numpy.cov(design.T, ddof=1) - error_cov
         if expression_cov[1,1] < 0:
-            #print("Warning: correcting negative estimate", file=sys.stderr)
+            print("Warning: correcting negative estimate", file=sys.stderr)
+            print(expression_cov, error_cov, file=sys.stderr)
             return 0, 1
         # Hack to make reliability make sense
         expression_cov[0,0] = 1
@@ -275,8 +277,10 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
 
         # Speed up so fewer computations
         expression_cov = numpy.var(expression, ddof=1) - numpy.mean(sigma_u)
+        #expression_cov = numpy.var(expression - sigma_u)
         if expression_cov < 0:
-            #print("Warning: correcting negative estimate", file=sys.stderr)
+            print("Warning: correcting negative estimate", file=sys.stderr)
+            print(numpy.var(expression, ddof=1),  numpy.mean(sigma_u), file=sys.stderr)
             return 0, 1
         mu_x = numpy.mean(design, axis=0)
         imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * wi]
