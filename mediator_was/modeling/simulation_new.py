@@ -64,33 +64,35 @@ def _fit_OLS(genotypes, expression):
     return statsmodels.api.OLS(expression, design).fit()
 
 class Gene():
-    def __init__(self, name, plink_file, n_train=500, p_causal_eqtls=0.1, pve=0.17, pve_se=0.05,
-                 n_causal=0, bootstrap_params=(350, 25)):
-        '''
-        A gene to simulate properties and train models for gene expression
+    '''
+     A gene to simulate properties and train models for gene expression
 
 
-        Args:
-            If n_causal > 0, p_causal_eqtls is not used.
-            bootstrap_params: tuple(number of individuals per boostrap, number of bootstraps)
- 
+    Args:
+        If n_causal > 0, p_causal_eqtls is not used.
+        bootstrap_params: tuple(number of individuals per boostrap, number of bootstraps)
 
-        Attributes:
-            haps: n x p pandas.DataFrame of n individual and p genotypes     
-            causal_loci: numpy.array of size causal loci
-                         with values as indices out of the p genotypes
-            beta: numpy.array of size p of beta_exp
-            train_ind: numpy.array of individual indices used for training
-            train_genotypes, train_expression: training genotypes and expression array
-            bootstrap_models: a list of bootstrapped ElasticNetCV models fit to training data
-            bayesian_model: a bayesian Model of type expression
+
+    Attributes:
+        haps: n x p pandas.DataFrame of n individual and p genotypes     
+        causal_loci: numpy.array of size causal loci
+                     with values as indices out of the p genotypes
+        beta: numpy.array of size p of beta_exp
+        train_ind: numpy.array of individual indices used for training
+        train_genotypes, train_expression: training genotypes and expression array
+        bootstrap_models: a list of bootstrapped ElasticNetCV models fit to training data
+        bayesian_model: a bayesian Model of type expression
 
        
         TODO: allow for more complex noise models
        
-        '''
+    '''
+
+    def __init__(self, name, plink_file, n_train=500, p_causal_eqtls=0.1, pve=0.17, pve_se=0.05,
+                 n_causal=0, bootstrap_params=(350, 25)):
 
         # Set parameters
+        R.seed(0)
         self.name = name
         self.id = '_'.join(map(str, [name, p_causal_eqtls, pve, current_milli_time()]))
         self.plink_file = plink_file
@@ -174,8 +176,25 @@ class Gene():
 
 
 class Study(object):
-    def __init__(self, name, causal_genes, pve=0.2/100,
+    '''
+    Study class for saving causal genes, genotypes, and phenotypes
+
+    Args:
+        causal_genes - list of gene objects, length g
+        pve - percentage of variance explained by genotypes
+        n_samples - number of samples
+
+    Attributes:
+        beta - beta_phen for each gene
+        genotypes - array of genotypes, length g ; 
+                    each entry is of length g.snp x n
+        expression - g x n array of expression 
+        phenotype - 1 x n array of phenotype
+    '''
+
+    def __init__(self, name, causal_genes, pve=0.2,
                  n_samples=5000):
+        R.seed(0)
         self.name = name
         self.causal_genes = causal_genes
         self.beta = R.normal(size=len(causal_genes))
@@ -220,7 +239,28 @@ class Study(object):
 
 
 class Association(object):
+    '''
+    Each gene - study relationship has its own association object.   
+    Fit frequentist associations and bayesian models.
+
+
+    Args:
+        gene - gene 
+        study - study
+        
+    Attributes:
+        phenotype - study.phenotype
+        genotype -   
+            If study.causal_genes does not include gene,
+                 generate random set of genotypes from gene
+            Otherwise, use the genotypes used to generate study.phenotype
+        f_association - dictionary of association statistics from frequentist tests
+        bayesian_models - list(pm_model, prior_model, full_model)
+
+
+    '''
     def __init__(self, name, gene, study):
+        R.seed(0)
         self.name = name
         self.gene = gene
         self.study = study
@@ -230,7 +270,7 @@ class Association(object):
             self.genotype = self.study.genotypes[self.study.gene_map[gene.id]]
         else:
             self.genotype = self.gene.simulate(n=self.phenotypes.shape,
-                                                train=False)
+                                               train=False)
         self._fit_frequentist()
         self._fit_bayesian()
 
@@ -243,27 +283,28 @@ class Association(object):
         genotype = self.genotype
         phenotype = self.phenotype
 
-        # Bootstrapped
-        bms = self.gene.bootstrap_models
-        pred_expr = numpy.array([m.predict(genotype) for m in bms])
-        w_bootstrap = numpy.mean(pred_expr, axis=0)
-        sigma_ui_bootstrap = numpy.var(pred_expr, ddof=1, axis=0)
-
         # Single Model Fit
         ms = self.gene.ols_model
         design = statsmodels.tools.add_constant(genotype)
         w = ms.predict(design)
         sigma_ui = (design * numpy.dot(ms.cov_params(), design.T).T).sum(1)
 
-        # Bayesian Multiple Imputation
+        # Bootstrapped
+        bms = self.gene.bootstrap_models
+        pred_expr = numpy.array([m.predict(genotype) for m in bms])
+        w_bootstrap = numpy.mean(pred_expr, axis=0)
+        sigma_ui_bootstrap = numpy.var(pred_expr, ddof=1, axis=0)
+
+        # Bayesian
         exp_model = self.gene.bayesian_model
         beta_exp_trace = exp_model.trace[-5000::100]['beta_exp']
         beta_exp_trace = numpy.array([beta_exp_trace[:, 0][:, idx]
                                      for idx in range(genotype.shape[1])])
-        bay_pred_expr = numpy.apply_along_axis(lambda x: genotype.dot(x.T),
+        pred_expr_bay = numpy.apply_along_axis(lambda x: genotype.dot(x.T),
                                                0,
                                                beta_exp_trace).T
-
+        w_bay = numpy.mean(pred_expr_bay, axis=0)
+        sigma_ui_bay = numpy.var(pred_expr_bay, ddof=1, axis=0)
 
         association = {'OLS': t(w, phenotype, method="OLS"),
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
@@ -279,11 +320,13 @@ class Association(object):
                                                    method='rc-hetero'),
                        'RC-hetero-se': t(w, phenotype, sigma_ui,
                                          method="rc-hetero"),
+                       'RC-hetero-bay': t(w_bay, phenotype, sigma_ui_bay,
+                                          method="rc-hetero"),
                        # TODO: 'RC-Log' to have multiplicative error.
                        'Weighted': t(w, phenotype, sigma_ui,
                                      method="weighted"),
                        'MI-Bootstrapped': multiple_imputation(pred_expr, phenotype),
-                       'MI-Bayesian': multiple_imputation(bay_pred_expr, phenotype),
+                       'MI-Bayesian': multiple_imputation(pred_expr_bay, phenotype),
                        }
         self.f_association = association
         return
@@ -303,11 +346,3 @@ class Association(object):
                                     self.phenotype)
         self.bayesian_models = [pm_model, prior_model, full_model]
         return
-
-class Power(object):
-    def __init__(self, associations):
-        return
-
-
-
-
