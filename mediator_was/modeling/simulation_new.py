@@ -18,6 +18,7 @@ import numpy.random as R
 import sklearn.linear_model
 import sklearn.metrics
 import sklearn.utils
+import pandas as pd
 
 
 from mediator_was.modeling.association import *
@@ -257,6 +258,8 @@ class Association(object):
             If study.causal_genes does not include gene,
                  generate random set of genotypes from gene
             Otherwise, use the genotypes used to generate study.phenotype
+        beta - simulated beta from study for gene
+        expected_pve - expected pve based on other gene's beta and study pve
         f_association - dictionary of association statistics from frequentist tests
         bayesian_models - list(pm_model, prior_model, full_model)
 
@@ -271,9 +274,13 @@ class Association(object):
 
         if gene.id in study.gene_map:
             self.genotype = study.genotypes[study.gene_map[gene.id]]
+            self.beta = study.beta[study.gene_map[gene.id]]
+            self.expected_pve = (self.beta/sum(study.beta))*study.pve
         else:
             self.genotype = gene.simulate(n=self.phenotype.shape,
                                           train=False)
+            self.beta = 0
+            self.expected_pve = 0 
         self._fit_frequentist(gene)
         self._fit_bayesian(gene)
 
@@ -348,4 +355,10 @@ class Association(object):
                                     self.genotype,
                                     self.phenotype)
         self.bayesian_models = [pm_model, prior_model, full_model]
+        return
+
+    def save_frequentist(self, filename):
+        df = pd.DataFrame.from_dict(self.f_association, orient='index')
+        df.columns = ['coeff', 'se', 'pvalue']
+        df.to_csv(filename, sep="\t")
         return
