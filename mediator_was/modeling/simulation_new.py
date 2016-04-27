@@ -180,7 +180,8 @@ class Study(object):
     Study class for saving causal genes, genotypes, and phenotypes
 
     Args:
-        causal_genes - list of gene objects, length g
+        causal_genes - list of gene objects, length g 
+                       NOTE: not saving this anymore to save space.
         pve - percentage of variance explained by genotypes
         n_samples - number of samples
 
@@ -190,29 +191,30 @@ class Study(object):
                     each entry is of length g.snp x n
         expression - g x n array of expression 
         phenotype - 1 x n array of phenotype
+        gene_map - dict((gene_id, gene_idx))
     '''
 
     def __init__(self, name, causal_genes, pve=0.2,
                  n_samples=5000):
         R.seed(0)
         self.name = name
-        self.causal_genes = causal_genes
+        #self.causal_genes = causal_genes
         self.beta = R.normal(size=len(causal_genes))
         self.pve = pve
         self.n_samples = n_samples
-        self._generate()
+        self._generate(causal_genes)
         return
 
-    def _generate(self):
+    def _generate(self, causal_genes):
         '''
         Creates a gene map for future usage and simulates a mediated phenotype.
         '''
         self.gene_map = dict((gene.id, idx)
-                             for idx, gene in enumerate(self.causal_genes))
-        self.genotypes, self.expression, self.phenotype = self.simulate(self.n_samples)
+                             for idx, gene in enumerate(causal_genes))
+        self.genotypes, self.expression, self.phenotype = self.simulate(causal_genes, self.n_samples)
 
 
-    def simulate(self, n=50000, method="mediated"):
+    def simulate(self, causal_genes, n=50000, method="mediated"):
         """
         Return genotypes, true expression, and continuous phenotype.
             n - number of individuals
@@ -228,11 +230,11 @@ class Study(object):
         elif method == "independent":
             def phenotype(n, genotypes, expression):
                 genetic_value = sum(numpy.dot(g, R.normal(size=gene.beta.shape))
-                                    for g, gene in zip(genotypes, self.causal_genes))
+                                    for g, gene in zip(genotypes, causal_genes))
                 return _add_noise(genetic_value, self.pve)
 
         genotypes, expression = zip(*[gene.simulate(n, train=False)
-                                    for gene in self.causal_genes])
+                                    for gene in causal_genes])
         phenotype = phenotype(n, genotypes, expression)
 
         return genotypes, expression, phenotype
@@ -262,21 +264,21 @@ class Association(object):
     def __init__(self, name, gene, study):
         R.seed(0)
         self.name = name
-        self.gene = gene
-        self.study = study
-        self.phenotype = self.study.phenotype
+        self.gene = gene.id
+        self.study = study.name
+        self.phenotype = study.phenotype
 
-        if gene.id in self.study.gene_map:
-            self.genotype = self.study.genotypes[self.study.gene_map[gene.id]]
+        if gene.id in study.gene_map:
+            self.genotype = study.genotypes[study.gene_map[gene.id]]
         else:
-            self.genotype = self.gene.simulate(n=self.phenotypes.shape,
-                                               train=False)
-        self._fit_frequentist()
-        self._fit_bayesian()
+            self.genotype = gene.simulate(n=self.phenotype.shape,
+                                          train=False)
+        self._fit_frequentist(gene)
+        self._fit_bayesian(gene)
 
         return
 
-    def _fit_frequentist(self):
+    def _fit_frequentist(self, gene):
         '''
         Fit frequentist methods for association
         '''
@@ -284,19 +286,19 @@ class Association(object):
         phenotype = self.phenotype
 
         # Single Model Fit
-        ms = self.gene.ols_model
+        ms = gene.ols_model
         design = statsmodels.tools.add_constant(genotype)
         w = ms.predict(design)
         sigma_ui = (design * numpy.dot(ms.cov_params(), design.T).T).sum(1)
 
         # Bootstrapped
-        bms = self.gene.bootstrap_models
+        bms = gene.bootstrap_models
         pred_expr = numpy.array([m.predict(genotype) for m in bms])
         w_bootstrap = numpy.mean(pred_expr, axis=0)
         sigma_ui_bootstrap = numpy.var(pred_expr, ddof=1, axis=0)
 
         # Bayesian
-        exp_model = self.gene.bayesian_model
+        exp_model = gene.bayesian_model
         beta_exp_trace = exp_model.trace[-5000::100]['beta_exp']
         beta_exp_trace = numpy.array([beta_exp_trace[:, 0][:, idx]
                                      for idx in range(genotype.shape[1])])
@@ -331,8 +333,8 @@ class Association(object):
         self.f_association = association
         return
 
-    def _fit_bayesian(self, n_steps=10000):
-        exp_model = self.gene.bayesian_model
+    def _fit_bayesian(self, gene, n_steps=10000):
+        exp_model = gene.bayesian_model
         exp_trace = exp_model.beta_exp_trace[-n_steps:]
         pm_model = bay.phenotype_model_with_pm(self.genotype,
                                                self.phenotype,
