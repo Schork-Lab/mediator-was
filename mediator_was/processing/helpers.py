@@ -25,7 +25,7 @@ def load_plink(plink_prefix):
     haps.index = genotypes.get_loci()
     haps.columns = genotypes.get_samples()
     haps = haps.applymap(reorder_alleles)
-    haps = haps.T
+    #haps = haps.T
     return haps
 
 def load_hapgen(hap_file):
