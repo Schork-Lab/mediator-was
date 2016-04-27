@@ -195,10 +195,10 @@ class Study(object):
     '''
 
     def __init__(self, name, causal_genes, pve=0.2,
-                 n_samples=5000):
-        R.seed(0)
+                 n_samples=5000, seed=0):
+        R.seed(seed)
         self.name = name
-        self.id = '_'.join(map(str, [name, pve, len(causal_genes), current_milli_time()]))
+        self.id = '_'.join(map(str, [name, pve, len(causal_genes), seed, current_milli_time(),]))
         #self.causal_genes = causal_genes
         self.beta = R.normal(size=len(causal_genes))
         self.pve = pve
@@ -248,8 +248,8 @@ class Association(object):
 
 
     Args:
-        gene - gene 
-        study - study
+        gene - gene.id
+        study - study.id
         
     Attributes:
         phenotype - study.phenotype

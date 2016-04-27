@@ -48,8 +48,9 @@ if __name__ == "__main__":
             print('Simulating gene {}'.format(sys.argv[2]))
             simulate_gene(sys.argv[2], sys.argv[3], sys.argv[4])
         elif sys.argv[1] == "simulate_study":
-            print('Simulating study phenotype')
-            simulate_study(sys.argv[2], sys.argv[3], sys.argv[4])
+            print('Simulating study phenotype '.format(sys.argv[2]))
+            seed = sys.argv[5] if len(sys.argv) > 5 else 0
+            simulate_study(sys.argv[2], sys.argv[3], sys.argv[4], seed)
         elif sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[3], sys.argv[4]))
             associate(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
