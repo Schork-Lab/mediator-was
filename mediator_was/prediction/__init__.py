@@ -1,5 +1,7 @@
 """
 Analysis of our predictions before incorporating them into association methods
+
+Author: Kunal Bhutani <kunalbhutani@gmail.com>
 """
 from itertools import combinations
 import pandas as pd
@@ -13,7 +15,7 @@ class Predictions():
     '''
     def __init__(self, 
                  genotype_file=None, genotype_filetype='vcf', weights={}, 
-                 predicted_files=None):
+                 predicted_files=None, sample_map=None):
         '''
         Calculate predicted expression using provided genotype file and weights or
         load in already predicted expression values.
@@ -22,7 +24,7 @@ class Predictions():
         self.predictions = {}
         if predicted_files:
             for method, fn in predicted_files.items():
-                self.predictions[method] = self.load(fn)
+                self.predictions[method] = self.load(fn, sample_map)
         else:
             error = "Calculating Predictions requires genotype_file and weights"
             assert genotype_file is not None and weights is not None, error
@@ -40,7 +42,7 @@ class Predictions():
             predictions_df = stream(weights, self.genotype_file, self.genotype_filetype)
             self.predictions[method] = predictions_df
 
-    def load(self, fn, gtex=False):
+    def load(self, fn, sample_map=None):
         '''
         Load in previously calculated predicted expression.
         '''
@@ -52,8 +54,8 @@ class Predictions():
                                      index_col=0,
                                      compression=compression,
                                      sep='\t')
-        if gtex:
-            predicted_df.columns = predicted_df.columns.map(lambda x: "-".join(x.split('-')[:2]))
+        if sample_map:
+            predicted_df.columns = predicted_df.columns.map(sample_map)
         return predicted_df
 
     def create_attenuation_df(self, studies=None):
@@ -102,14 +104,17 @@ class Predictions():
         '''
 
         if not studies:
-            studies = self.predictions.keys()
+            studies = list(self.predictions.keys())
         if not shared_genes:
             shared_genes = [set(self.predictions[study].index) for study in studies]
             shared_genes = shared_genes[0].intersection(*shared_genes[1:])
         if not samples:
             samples = self.predictions[studies[0]].columns
 
+        print('Calculating correlation for studies: {}'.format(studies))
+            
         corrs = []
+        genes = []
         for gene in shared_genes:
             try:
                 gene_df = pd.concat([self.predictions[study].ix[gene][samples]
@@ -120,9 +125,9 @@ class Predictions():
             #gene_df = gene_df.apply(standardize, axis=0)
             corr = gene_df.corr()
             corr = corr.values[numpy.triu_indices(corr.shape[0], k=1)]
-            #corr.index = gene
+            genes.append(gene)
             corrs.append(corr)
-        corr_df = pd.DataFrame(corrs, columns=pd.MultiIndex.from_tuples(list(combinations(studies, 2))))
+        corr_df = pd.DataFrame(corrs, index=genes, columns=pd.MultiIndex.from_tuples(list(combinations(studies, 2))))
         #corr_df.index = shared_genes
         return corr_df
 
@@ -138,10 +143,11 @@ class Predictions():
         corr_df = corr_df.describe().ix['mean']
         sample_combos = combinations(gtex_pred.predictions.keys(), 2)
         corr_df = corr_df.unstack()
-        for sample in studies:
-            corr_df.loc[sample,sample] = 1
-        for sample1, sample2 in combinations(studies, 2):
-            corr_df.loc[sample2, sample1] = corr_df.loc[sample1, sample2]
+        for study in studies:
+            corr_df.loc[study, study] = 1
+        for study1, study2 in combinations(studies, 2):
+            corr_df.loc[study2, study1] = corr_df.loc[study1, study2]
+        return corr_df
 
     def get_pairwise_avg_corr(self, studies=None, shared_genes=None, samples=None):
         '''
@@ -150,14 +156,15 @@ class Predictions():
         '''
         if not studies:
             studies = self.predictions.keys()
-        sample_combos = list(combinations(studies, 2))
-        correlations = list(map(lambda x: str(self.create_corr_df(x, samples=samples).describe().ix['mean']), sample_combos))
+        study_combos = list(combinations(studies, 2))
+        correlations = list(map(lambda x: str(self.create_corr_df(x, shared_genes, samples).describe().ix['mean']),
+                                 study_combos))
         corr_df = pd.DataFrame(list(map(lambda x: float(x.split()[2]), correlations)), 
-                               index=pd.MultiIndex.from_tuples(sample_combos))
+                               index=pd.MultiIndex.from_tuples(study_combos))
         corr_df = corr_df.unstack()
         corr_df.columns = corr_df.columns.droplevel(0)
-        for sample in studies:
-            corr_df.loc[sample, sample] = 1
-        for sample1, sample2 in combinations(studies, 2):
-            corr_df.loc[sample2, sample1] = corr_df.loc[sample1, sample2]
+        for study in studies:
+            corr_df.loc[study, study] = 1
+        for study1, study2 in combinations(studies, 2):
+            corr_df.loc[study2, study1] = corr_df.loc[study1, study2]
         return corr_df
