@@ -283,7 +283,7 @@ class Association(object):
             self.beta = 0
             self.expected_pve = 0 
         self._fit_frequentist(gene)
-        # self._fit_bayesian(gene)
+        self._fit_bayesian(gene)
 
         return
 
