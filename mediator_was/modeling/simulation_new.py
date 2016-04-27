@@ -198,6 +198,7 @@ class Study(object):
                  n_samples=5000):
         R.seed(0)
         self.name = name
+        self.id = '_'.join(map(str, [name, pve, len(causal_genes), current_milli_time()]))
         #self.causal_genes = causal_genes
         self.beta = R.normal(size=len(causal_genes))
         self.pve = pve
@@ -265,7 +266,7 @@ class Association(object):
         R.seed(0)
         self.name = name
         self.gene = gene.id
-        self.study = study.name
+        self.study = study.id
         self.phenotype = study.phenotype
 
         if gene.id in study.gene_map:
