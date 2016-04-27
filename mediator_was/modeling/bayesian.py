@@ -41,7 +41,7 @@ def expression_model(genotypes, expression,
         expression_trace = pm.sample(100000, step=pm.Metropolis(), start=start, progressbar=True)
 
     return Model(expression_model, expression_trace[-10000:],
-                expression_trace['beta_exp'], 'expression')
+                expression_trace['beta_exp'][-10000:], 'expression')
 
 
 def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
@@ -97,7 +97,7 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
         start = pm.find_MAP()
         phenotype_trace = pm.sample(50000, step=pm.NUTS(), start=start,
                                     progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'], 'prior')
+    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'prior')
 
 
 def full_model(exp_genotypes, expression,
@@ -138,7 +138,7 @@ def full_model(exp_genotypes, expression,
         step2 = pm.NUTS([beta_phen, phenotype_sigma])
         phenotype_trace = pm.sample(150000, step=pm.Metropolis(), start=start, progressbar=True)
         # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'], 'full')
+    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
 
 
 def compute_ppc(model, samples=500, size=1):
