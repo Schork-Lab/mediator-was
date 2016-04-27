@@ -342,8 +342,8 @@ class Association(object):
         prior_model = bay.phenotype_model_with_prior(self.genotype,
                                                      self.phenotype,
                                                      exp_trace)
-        full_model = bay.full_model(self.gene.train_genotypes,
-                                    self.gene.train_expression,
+        full_model = bay.full_model(gene.train_genotypes,
+                                    gene.train_expression,
                                     self.genotype,
                                     self.phenotype)
         self.bayesian_models = [pm_model, prior_model, full_model]

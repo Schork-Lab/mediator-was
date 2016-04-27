@@ -9,7 +9,6 @@ def simulate_gene(gene_name, plink_file, out_file=None, *args, **kwargs):
     print('Writing out file: {}'.format(out_file))
     with open(out_file, 'wb') as f:
         pickle.dump(gene, f)
-
     return
 
 
@@ -37,6 +36,7 @@ def associate(association_name, gene_file, study_file, out_file):
         pickle.dump(association, f)
     return
 
+
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         print("Usage: python runner.py {gene, phenotype, association}")
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         print("python.py runner.py associate association_name gene_file study_file out_file")
     else:
         if sys.argv[1] == "simulate_gene":
-            print('Simulating gene')
+            print('Simulating gene {}'.format(sys.argv[2]))
             simulate_gene(sys.argv[2], sys.argv[3], sys.argv[4])
         elif sys.argv[1] == "simulate_study":
             print('Simulating study phenotype')
