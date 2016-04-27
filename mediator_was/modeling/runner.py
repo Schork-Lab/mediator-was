@@ -29,8 +29,7 @@ def associate(association_name, gene_file, study_file, out_file):
     print(gene_file)
     with pm.Model():
         gene = pickle.load(open(gene_file, 'rb'))
-    with pm.Model():
-        study = pickle.load(open(study_file, 'rb'))
+    study = pickle.load(open(study_file, 'rb'))
     association = s.Association(association_name, gene, study)
     association.save_frequentist(out_file.replace('.pkl','')+'.f_associations')
     with open(out_file, 'wb') as f:
