@@ -200,6 +200,7 @@ class Study(object):
         R.seed(seed)
         self.name = name
         self.id = '_'.join(map(str, [name, pve, len(causal_genes), seed, current_milli_time(),]))
+        self.causal_genes = [gene.id for gene in causal_genes]
         #self.causal_genes = causal_genes
         self.beta = R.normal(size=len(causal_genes))
         self.pve = pve
@@ -214,7 +215,7 @@ class Study(object):
         self.gene_map = dict((gene.id, idx)
                              for idx, gene in enumerate(causal_genes))
         self.genotypes, self.expression, self.phenotype = self.simulate(causal_genes, self.n_samples)
-
+        self.oos_genotypes, self.oos_expression, self.oos_phenotype = self.simulate(causal_genes, self.n_samples)
 
     def simulate(self, causal_genes, n=50000, method="mediated"):
         """
@@ -277,12 +278,12 @@ class Association(object):
             self.beta = study.beta[study.gene_map[gene.id]]
             self.expected_pve = (self.beta/sum(study.beta))*study.pve
         else:
-            self.genotype = gene.simulate(n=self.phenotype.shape,
-                                          train=False)
+            self.genotype, _ = gene.simulate(n=self.phenotype.shape,
+                                             train=False)
             self.beta = 0
             self.expected_pve = 0 
         self._fit_frequentist(gene)
-        self._fit_bayesian(gene)
+        # self._fit_bayesian(gene)
 
         return
 
