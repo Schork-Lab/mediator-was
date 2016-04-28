@@ -54,7 +54,7 @@ def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
                                           for idx in range(n_snps)])
     beta_exp_mean = beta_exp_trace_reshaped.mean(axis=1)
     with pm.Model() as phenotype_model:
-        beta_phen = pm.Uniform('beta_phen', -1e3, 1e3)
+        beta_phen = pm.Normal('beta_phen', 0, 1)
         expression = np.dot(beta_exp_mean, genotypes.T)
         sigma = pm.HalfCauchy('sigma', beta=cauchy_beta)
         if not logistic:
@@ -83,7 +83,7 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
                              mu=beta_exp_mean, 
                              sd=beta_exp_sd, 
                              shape=(1, n_snps))
-        beta_phen = pm.Uniform('beta_phen', -1e3, 1e3)
+        beta_phen = pm.Normal('beta_phen', 0, 1)
         exp = pm.dot(beta_exp, genotypes.T)
         sigma = pm.HalfCauchy('sigma', beta=cauchy_beta)
         if not logistic:
@@ -95,8 +95,12 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
             p = tinvlogit(beta_phen*exp)
             phen = pm.Bernoulli('phen', p=p, observed=phenotypes)
         start = pm.find_MAP()
+        # step1 = pm.NUTS([beta_exp])
+        # step2 = pm.Metropolis([beta_phen, sigma])
+        # phenotype_trace = pm.sample(20000, step=[step1, step2], start=start,
+        #                             progressbar=True)
         phenotype_trace = pm.sample(50000, step=pm.NUTS(), start=start,
-                                    progressbar=True)
+                                            progressbar=True)
     return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'prior')
 
 
@@ -118,7 +122,7 @@ def full_model(exp_genotypes, expression,
                         sd=expression_sigma, 
                         observed=expression)
         # Phenotype
-        beta_phen = pm.Uniform('beta_phen', -1e3, 1e3)
+        beta_phen = pm.Normal('beta_phen', 0, 1)
         phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes.T)
         phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=10)
         phenotype_mu = beta_phen * phenotype_expression_mu
@@ -136,7 +140,7 @@ def full_model(exp_genotypes, expression,
         start = pm.find_MAP()
         step1 = pm.Metropolis([beta_exp, expression_sigma])
         step2 = pm.NUTS([beta_phen, phenotype_sigma])
-        phenotype_trace = pm.sample(150000, step=pm.Metropolis(), start=start, progressbar=True)
+        phenotype_trace = pm.sample(100000, step=pm.Metropolis(), start=start, progressbar=True)
         # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
     return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
 
@@ -154,15 +158,12 @@ def compute_ppc(model, samples=500, size=1):
     return values
 
 
-def compute_mse(phenotypes, models):
+def compute_mse(phenotypes, model):
     '''
-    models: dict(model_name, [trace, model, type={'pm','prior','full'}])
+    Compute insample mse
     '''
-    mse = dict()
-    for name, model in models.items():
-        squared_error = (phenotypes - compute_ppc(model.model, model.trace))**2
-        mse[name] = np.mean(squared_error)
-    return mse
+    squared_error = (phenotypes - compute_ppc(model.model, model.trace))**2
+    return numpy.mean(squared_error)
 
 
 def compute_ppc_oos(genotypes, model, num_steps=10000,):
@@ -192,15 +193,13 @@ def compute_ppc_oos(genotypes, model, num_steps=10000,):
     return exp, phen
 
 
-def compute_mse_oos(genotypes, phenotypes, models):
+def compute_mse_oos(genotypes, phenotypes, model):
     '''
-    models: dict(model_name, [trace, model, type={'pm','prior','full'}])
+    Compute out of sample mse
     '''
-    mse = dict()
-    for name, model in models.items():
-        squared_error = (phenotypes - compute_ppc_oss(model))**2
-        mse[name] = np.mean(squared_error)
-    return mse
+    exp_hat, phen_hat = compute_ppc_oos(genotypes, model)
+    squared_error = (phenotypes - phen_hat)**2
+    return np.mean(squared_error)
 
 
 def ppc_df(phenotype, models, oos=True):

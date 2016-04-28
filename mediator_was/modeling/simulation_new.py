@@ -272,22 +272,28 @@ class Association(object):
         self.gene = gene.id
         self.study = study.id
         self.phenotype = study.phenotype
+        self.oos_phenotype = study.oos_phenotype
 
         if gene.id in study.gene_map:
             self.genotype = study.genotypes[study.gene_map[gene.id]]
+            self.oos_genotype = study.oos_genotypes[study.gene_map[gene.id]]
             self.beta = study.beta[study.gene_map[gene.id]]
             self.expected_pve = (self.beta/sum(study.beta))*study.pve
         else:
             self.genotype, _ = gene.simulate(n=self.phenotype.shape,
                                              train=False)
+            self.oos_genotype, _ = gene.simulate(n=self.phenotype.shape,
+                                             train=False)
             self.beta = 0
             self.expected_pve = 0 
-        self._fit_frequentist(gene)
+
+        self._test_frequentist(gene)
         self._fit_bayesian(gene)
+        self._test_bayesian()
 
         return
 
-    def _fit_frequentist(self, gene):
+    def _test_frequentist(self, gene):
         '''
         Fit frequentist methods for association
         '''
@@ -358,8 +364,76 @@ class Association(object):
         self.bayesian_models = [pm_model, prior_model, full_model]
         return
 
-    def save_frequentist(self, filename):
-        df = pd.DataFrame.from_dict(self.f_association, orient='index')
-        df.columns = ['coeff', 'se', 'pvalue']
-        df.to_csv(filename, sep="\t")
+    def _test_bayesian(self):
+        mse = dict((model.type,
+                    bay.compute_mse_oos(self.oos_genotype,
+                                        self.oos_phenotype,
+                                        model))
+                   for model in self.bayesian_models)
+        self.b_mse = mse
         return
+
+    def create_frequentist_df(self):
+        f_df = pd.DataFrame.from_dict(self.f_association, orient='index')
+        f_df.columns = ['coeff', 'se', 'pvalue']
+        f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
+                                                f_df.index])
+        return f_df
+
+    def create_mse_df(self):
+        b_df = pd.DataFrame.from_dict(self.b_mse, orient='index')
+        b_df.columns = ['mse']
+        b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
+                                                b_df.index])
+        return b_df
+
+class Power():
+    def __init__(self, study, associations):
+        self.study = study
+        self.pr_df = self.precision_recall_df(associations)     
+        return
+
+    def precision_recall_df(self, associations):
+        self._create_association_dfs(associations)      
+        precision_recall_df = pd.concat([self.f_estimator_df[['precision', 'recall'],
+                                         self.b_estimator_df[['precision', 'recall']]]])
+        return precision_recall_df
+
+    def _create_association_dfs(self, associations):
+        self.f_association_df = pd.concat([association.create_frequentist_df()
+                                          for association in associations])
+        f_estimator =  lambda x: self._calculate_estimator_df(self.f_association_df, x)
+        self.f_estimator_df = pd.concat(map(f_estimator,
+                                            self.f_association_df.index.levels[0]))
+
+        self.b_association_df = pd.concat([association.create_mse_df()
+                                          for association in associations])
+        b_sort = lambda x: x.sort_values('mse')
+        b_estimator = lambda x: self._calculate_estimator_df(self.b_mse_df, 
+                                                          x,
+                                                          b_sort)
+        self.b_estimator_df = pd.concat(map(b_estimator,
+                                            self.b_association_df.index.levels[0]))
+        return
+
+    def _calculate_estimator_df(self, association_df, estimator, sort_func=lambda x: x.sort_values('pvalue')):
+        estimator_df = association_df.ix[estimator]
+        estimator_df['in_study'] = estimator_df.index.map(lambda x: True if x in self.study.gene_map else False)
+        estimator_df = sort_func(estimator_df)
+        fdrs = []
+        recalls = []
+        precisions = []
+        for i in range(1, estimator_df.shape[0]+1):
+            num_correct = float(sum(estimator_df['in_study'][:i]))
+            num_incorrect = i - num_correct
+            recall = num_correct / len(self.study.beta)
+            precision = num_correct / i
+            fdr = num_incorrect / i
+            fdrs.append(fdr)
+            precisions.append(precision)
+            recalls.append(recall)
+        estimator_df['fdr'] = fdrs
+        estimator_df['precision'] = precisions
+        estimator_df['recall'] = recalls
+        estimator_df['estimator'] = estimator
+        return estimator_df
