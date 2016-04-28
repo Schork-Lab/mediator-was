@@ -326,6 +326,8 @@ class Association(object):
         association = {'OLS': t(w, phenotype, method="OLS"),
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
                                            method="OLS"),
+                       'OLS-Bayesian': t(w_bay, phenotype,
+                                         method="OLS"),
                        'WLS': t(w, phenotype, sigma_ui, method="WLS"),
                        'Moment': t(w, phenotype, sigma_ui, method="moment"),
                        'Moment2': t(w, phenotype, sigma_ui, method="moment2"),
