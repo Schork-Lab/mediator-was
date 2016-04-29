@@ -41,7 +41,7 @@ def expression_model(genotypes, expression,
         expression_trace = pm.sample(100000, step=pm.Metropolis(), start=start, progressbar=True)
 
     return Model(expression_model, expression_trace[-10000:],
-                expression_trace['beta_exp'][-10000:], 'expression')
+                 expression_trace['beta_exp'][-10000:], 'expression')
 
 
 def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
@@ -222,21 +222,32 @@ def phen(model, n_steps=5000, pvalue=False):
         return summary.ix['beta_phen']['mean'], summary.ix['beta_phen']['sd'], 0
 
 
-def bayes_factor(model, genotypes, phenotypes, 
+def bayes_factor(model, genotypes, phenotype, 
                  train_genotypes=None, train_expression=None):
+
     if model.type == 'pm':
         calc_num, calc_den = _bf_pm()
-        return
     elif model.type == 'prior':
         calc_num, calc_den = _bf_prior()
-        return
     elif model.type == 'full':
+
+        print("Bayes factor 3 called")
         calc_num, calc_den = _bf_full()
-        assert train_genotypes, "Need train genotypes for computing BayesFactor of full model."
-    
-    num = lambda step: calc_num(step, genotypes, phenotype,
+
+    n_snps = genotypes.shape[1]
+    beta_exp_trace = model.beta_exp_trace
+    beta_exp_trace_reshaped = np.array([beta_exp_trace[:,0][:, idx]
+                                          for idx in range(n_snps)])
+
+    beta_exp_mean = beta_exp_trace_reshaped.mean(axis=1)
+    beta_exp_sd = beta_exp_trace_reshaped.std(axis=1, ddof=1)
+    expression = np.dot(beta_exp_mean, genotypes.T)
+
+    num = lambda step: calc_num(step, genotypes, phenotype, expression,
+                                beta_exp_mean, beta_exp_sd,
                                 train_genotypes, train_expression)
-    den = lambda step: calc_den(step, genotypes, phenotype,
+    den = lambda step: calc_den(step, genotypes, phenotype, expression,
+                                beta_exp_mean, beta_exp_sd,
                                 train_genotypes, train_expression)
 
     numerator = np.array(list((map(num, model.trace[-5000:])))).mean()
@@ -246,6 +257,8 @@ def bayes_factor(model, genotypes, phenotypes,
 
 def _bf_pm():
     def compute_logprob_numerator(step, genotypes, phenotype,
+                                  expression, 
+                                  beta_exp_mean=None, beta_exp_sd=None,
                                   train_genotypes=None, train_expression=None):
         log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))
         log_p_beta = np.log(stats.norm.pdf(step['beta_phen'], 0, 1))
@@ -254,7 +267,9 @@ def _bf_pm():
         return log_p_sigma + log_p_beta + log_p_y
 
     def compute_logprob_denominator(step, genotypes, phenotype,
-                                  train_genotypes=None, train_expression=None):
+                                    expression=None, 
+                                    beta_exp_mean=None, beta_exp_sd=None,
+                                    train_genotypes=None, train_expression=None):
             log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))
             log_p_y = np.log(stats.norm.pdf(phenotype, 0, step['sigma'])).sum()
             return log_p_sigma + log_p_y
@@ -264,6 +279,8 @@ def _bf_pm():
 
 def _bf_prior():
     def compute_logprob_numerator(step, genotypes, phenotype,
+                                  expression=None, 
+                                  beta_exp_mean=None, beta_exp_sd=None,
                                   train_genotypes=None, train_expression=None):
         log_p_beta_exp = np.log(stats.norm.pdf(step['beta_exp'], beta_exp_mean, beta_exp_sd)).sum()
         log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))
@@ -274,6 +291,8 @@ def _bf_prior():
         return log_p_sigma + log_p_beta_exp + log_p_y + log_p_beta 
 
     def compute_logprob_denominator(step, genotypes, phenotype,
+                                    expression=None, 
+                                    beta_exp_mean=None, beta_exp_sd=None,
                                     train_genotypes=None, train_expression=None):
         log_p_beta_exp = np.log(stats.norm.pdf(step['beta_exp'], beta_exp_mean, beta_exp_sd)).sum()
         log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))

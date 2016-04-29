@@ -465,7 +465,7 @@ class Power():
                                             self.b_association_df.index.levels[0]))
 
 
-        bf_sort = lambda x: x.sort_values('psuedo_bf')
+        bf_sort = lambda x: x.sort_values('psuedo_bf', ascending=False)
         bf_estimator = lambda x: self._calculate_estimator_df(self.bf_association_df, 
                                                               x,
                                                               bf_sort)
