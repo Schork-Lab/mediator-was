@@ -409,19 +409,36 @@ class Power():
     def precision_recall_df(self, associations=None, association_dir=None):
         self._create_association_dfs(associations, association_dir)      
         precision_recall_df = pd.concat([self.f_estimator_df[['estimator', 'precision', 'recall']],
-                                         self.b_estimator_df[['estimator', 'precision', 'recall']]])
+                                         self.b_estimator_df[['estimator', 'precision', 'recall']],
+                                         self.bf_estimator_df[['estimator', 'precision', 'recall']]])
         return precision_recall_df
+
+
+    def _calc_bayes_df(self, association):
+        bf = dict(('BF-'+model.type,
+                    bay.bayes_factor(model, 
+                                     association.genotype,
+                                     association.phenotype))
+                    for model in association.bayesian_models[:2])
+        bf_df = pd.DataFrame.from_dict(bf, orient='index')
+        bf_df.columns = ['psuedo_bf']
+        bf_df.index = pd.MultiIndex.from_tuples([(index, association.gene) for index in
+                                                bf_df.index])
+        return bf_df
+
 
     def _create_association_dfs(self, associations=None, association_dir=None):
         print(association_dir)
         f_association_dfs = []
         b_association_dfs = []
+        bf_association_dfs = []
         if association_dir:
             with pm.Model():
                 for fn in glob.glob(association_dir + '/assoc*.pkl'):
                     association = pickle.load(open(fn, 'rb'))
                     f_association_dfs.append(association.create_frequentist_df())
                     b_association_dfs.append(association.create_mse_df())
+                    bf_association_dfs.append(self._calc_bayes_df(association))
                     del association
             self.f_association_df = pd.concat(f_association_dfs)
             self.b_association_df = pd.concat(b_association_dfs)
@@ -430,6 +447,8 @@ class Power():
                                               for association in associations])
             self.b_association_df = pd.concat([association.create_mse_df()
                                               for association in associations])
+            self.bf_association_df = pd.concat([self._calc_bayes_df(association)
+                                               for association in associations])
 
 
 
@@ -443,6 +462,15 @@ class Power():
                                                               b_sort)
         self.b_estimator_df = pd.concat(map(b_estimator,
                                             self.b_association_df.index.levels[0]))
+
+
+        bf_sort = lambda x: x.sort_values('psuedo_bf')
+        bf_estimator = lambda x: self._calculate_estimator_df(self.bf_association_df, 
+                                                              x,
+                                                              bf_sort)
+        self.bf_estimator_df = pd.concat(map(bf_estimator,
+                                            self.bf_association_df.index.levels[0]))
+
         return
 
     def _calculate_estimator_df(self, association_df, estimator, sort_func=lambda x: x.sort_values('pvalue')):
