@@ -12,6 +12,8 @@ import operator
 import pickle
 import sys
 import time
+import glob
+import os
 
 import numpy
 import numpy.random as R
@@ -19,6 +21,7 @@ import sklearn.linear_model
 import sklearn.metrics
 import sklearn.utils
 import pandas as pd
+import pymc3 as pm
 
 
 from mediator_was.modeling.association import *
@@ -287,10 +290,11 @@ class Association(object):
             self.beta = 0
             self.expected_pve = 0 
 
+
         self._test_frequentist(gene)
         self._fit_bayesian(gene)
         self._test_bayesian()
-
+        
         return
 
     def _test_frequentist(self, gene):
@@ -390,36 +394,59 @@ class Association(object):
         return b_df
 
 class Power():
-    def __init__(self, study, associations):
-        self.study = study
-        self.pr_df = self.precision_recall_df(associations)     
+    def __init__(self, study=None, associations=None, association_dir=None):
+        if association_dir:
+            self.association_dir = association_dir
+            with pm.Model():
+                study_file = os.path.join(association_dir, "study.pkl")
+                self.study = pickle.load(open(study_file, 'rb'))
+                self.pr_df = self.precision_recall_df(association_dir=association_dir)     
+        else:
+            self.study = study
+            self.pr_df = self.precision_recall_df(associations)  
         return
 
-    def precision_recall_df(self, associations):
-        self._create_association_dfs(associations)      
-        precision_recall_df = pd.concat([self.f_estimator_df[['precision', 'recall'],
-                                         self.b_estimator_df[['precision', 'recall']]]])
+    def precision_recall_df(self, associations=None, association_dir=None):
+        self._create_association_dfs(associations, association_dir)      
+        precision_recall_df = pd.concat([self.f_estimator_df[['estimator', 'precision', 'recall']],
+                                         self.b_estimator_df[['estimator', 'precision', 'recall']]])
         return precision_recall_df
 
-    def _create_association_dfs(self, associations):
-        self.f_association_df = pd.concat([association.create_frequentist_df()
-                                          for association in associations])
+    def _create_association_dfs(self, associations=None, association_dir=None):
+        print(association_dir)
+        f_association_dfs = []
+        b_association_dfs = []
+        if association_dir:
+            with pm.Model():
+                for fn in glob.glob(association_dir + '/assoc*.pkl'):
+                    association = pickle.load(open(fn, 'rb'))
+                    f_association_dfs.append(association.create_frequentist_df())
+                    b_association_dfs.append(association.create_mse_df())
+                    del association
+            self.f_association_df = pd.concat(f_association_dfs)
+            self.b_association_df = pd.concat(b_association_dfs)
+        else:
+            self.f_association_df = pd.concat([association.create_frequentist_df()
+                                              for association in associations])
+            self.b_association_df = pd.concat([association.create_mse_df()
+                                              for association in associations])
+
+
+
         f_estimator =  lambda x: self._calculate_estimator_df(self.f_association_df, x)
         self.f_estimator_df = pd.concat(map(f_estimator,
                                             self.f_association_df.index.levels[0]))
 
-        self.b_association_df = pd.concat([association.create_mse_df()
-                                          for association in associations])
         b_sort = lambda x: x.sort_values('mse')
-        b_estimator = lambda x: self._calculate_estimator_df(self.b_mse_df, 
-                                                          x,
-                                                          b_sort)
+        b_estimator = lambda x: self._calculate_estimator_df(self.b_association_df, 
+                                                              x,
+                                                              b_sort)
         self.b_estimator_df = pd.concat(map(b_estimator,
                                             self.b_association_df.index.levels[0]))
         return
 
     def _calculate_estimator_df(self, association_df, estimator, sort_func=lambda x: x.sort_values('pvalue')):
-        estimator_df = association_df.ix[estimator]
+        estimator_df = pd.DataFrame.copy(association_df.ix[estimator])
         estimator_df['in_study'] = estimator_df.index.map(lambda x: True if x in self.study.gene_map else False)
         estimator_df = sort_func(estimator_df)
         fdrs = []

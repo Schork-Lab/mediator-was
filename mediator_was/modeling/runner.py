@@ -4,6 +4,7 @@ import pickle
 import mediator_was.modeling.simulation_new as s
 import pymc3 as pm
 
+
 def simulate_gene(gene_name, plink_file, out_file=None, *args, **kwargs):
     gene = s.Gene(gene_name, plink_file)
     print('Writing out file: {}'.format(out_file))
@@ -26,7 +27,6 @@ def simulate_study(study_name, gene_list_file, out_file=None, *args, **kwargs):
 
 
 def associate(association_name, gene_file, study_file, out_file):
-    print(gene_file)
     with pm.Model():
         gene = pickle.load(open(gene_file, 'rb'))
     study = pickle.load(open(study_file, 'rb'))
@@ -36,12 +36,20 @@ def associate(association_name, gene_file, study_file, out_file):
     return
 
 
+def power(association_dir, out_file):
+    power = s.Power(association_dir=association_dir)
+    with open(out_file, 'wb') as f:
+        pickle.dump(power, f)
+    return
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 1:
-        print("Usage: python runner.py {gene, phenotype, association}")
-        print("python.py runner.py simulate_gene gene_name plink_file out_file")
-        print("python.py runner.py simulate_study study_name gene_list_file out_file")
-        print("python.py runner.py associate association_name gene_file study_file out_file")
+        print("Usage: python runner {gene, phenotype, association}")
+        print("python runner.py simulate_gene gene_name plink_file out_file")
+        print("python runner.py simulate_study study_name gene_list_file out_file")
+        print("python runner.py associate association_name gene_file study_file out_file")
+        print("python runner.py power association_dir out_file")
     else:
         if sys.argv[1] == "simulate_gene":
             print('Simulating gene {}'.format(sys.argv[2]))
@@ -53,5 +61,8 @@ if __name__ == "__main__":
         elif sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[3], sys.argv[4]))
             associate(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+        elif sys.argv[1] == "power":
+            print('Running power for {}'.format(sys.argv[2]))
+            power(sys.argv[2], sys.argv[3])
         else:
             print('Unrecognized command', sys.argv[1])
