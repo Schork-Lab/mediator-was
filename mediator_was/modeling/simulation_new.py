@@ -442,6 +442,7 @@ class Power():
                     del association
             self.f_association_df = pd.concat(f_association_dfs)
             self.b_association_df = pd.concat(b_association_dfs)
+            self.bf_association_df = pd.concat(bf_association_dfs)
         else:
             self.f_association_df = pd.concat([association.create_frequentist_df()
                                               for association in associations])
