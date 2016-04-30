@@ -59,7 +59,7 @@ if __name__ == "__main__":
                           p_causal_eqtls=p_causal_eqtls)
         elif sys.argv[1] == "simulate_study":
             print('Simulating study phenotype '.format(sys.argv[2]))
-            seed = sys.argv[5] if len(sys.argv) > 5 else 0
+            seed = int(sys.argv[5]) if len(sys.argv) > 5 else 0
             print('Seed: {}'.format(seed))
             simulate_study(sys.argv[2], sys.argv[3], sys.argv[4], seed=seed)
         elif sys.argv[1] == "associate":
