@@ -293,7 +293,7 @@ class Association(object):
 
         self._test_frequentist(gene)
         self._fit_bayesian(gene)
-        self._test_bayesian()
+        self._test_bayesian(gene)
         
         return
 
@@ -370,13 +370,20 @@ class Association(object):
         self.bayesian_models = [pm_model, prior_model, full_model]
         return
 
-    def _test_bayesian(self):
+    def _test_bayesian(self, gene):
         mse = dict((model.type,
                     bay.compute_mse_oos(self.oos_genotype,
                                         self.oos_phenotype,
                                         model))
                    for model in self.bayesian_models)
         self.b_mse = mse
+
+        bf = dict(('BF-'+model.type,
+                   bay.bayes_factor(model, self.genotype, self.phenotype,
+                                    gene.train_genotypes, gene.train_expression))
+                    for model in self.bayesian_models)
+        self.b_bf = bf
+
         return
 
     def create_frequentist_df(self):
@@ -392,6 +399,13 @@ class Association(object):
         b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
                                                 b_df.index])
         return b_df
+
+    def create_bf_df(self):
+        bf_df = pd.DataFrame.from_dict(self.b_bf, orient='index')
+        bf_df.columns = ['psuedo_bf']
+        bf_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
+                                                bf_df.index])
+        return bf_df
 
 class Power():
     def __init__(self, study=None, associations=None, association_dir=None):
@@ -438,7 +452,7 @@ class Power():
                     association = pickle.load(open(fn, 'rb'))
                     f_association_dfs.append(association.create_frequentist_df())
                     b_association_dfs.append(association.create_mse_df())
-                    bf_association_dfs.append(self._calc_bayes_df(association))
+                    bf_association_dfs.append(association.create_bf_df())
                     del association
             self.f_association_df = pd.concat(f_association_dfs)
             self.b_association_df = pd.concat(b_association_dfs)
@@ -448,7 +462,7 @@ class Power():
                                               for association in associations])
             self.b_association_df = pd.concat([association.create_mse_df()
                                               for association in associations])
-            self.bf_association_df = pd.concat([self._calc_bayes_df(association)
+            self.bf_association_df = pd.concat([association.create_bf_df()
                                                for association in associations])
 
 

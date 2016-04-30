@@ -17,6 +17,7 @@ import pandas as pd
 from collections import namedtuple
 import theano.tensor as t
 import scipy.stats as stats
+import scipy.misc as misc
 
 
 Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace', 'type'])
@@ -100,9 +101,9 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
         # step2 = pm.Metropolis([beta_phen, sigma])
         # phenotype_trace = pm.sample(20000, step=[step1, step2], start=start,
         #                             progressbar=True)
-        phenotype_trace = pm.sample(50000, step=pm.NUTS(), start=start,
+        phenotype_trace = pm.sample(30000, step=pm.NUTS(), start=start,
                                             progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'prior')
+    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], 'prior')
 
 
 def full_model(exp_genotypes, expression,
@@ -141,7 +142,7 @@ def full_model(exp_genotypes, expression,
         start = pm.find_MAP()
         step1 = pm.Metropolis([beta_exp, expression_sigma])
         step2 = pm.NUTS([beta_phen, phenotype_sigma])
-        phenotype_trace = pm.sample(100000, step=pm.Metropolis(), start=start, progressbar=True)
+        phenotype_trace = pm.sample(125000, step=pm.Metropolis(), start=start, progressbar=True)
         # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
     return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
 
@@ -225,14 +226,13 @@ def phen(model, n_steps=5000, pvalue=False):
 def bayes_factor(model, genotypes, phenotype, 
                  train_genotypes=None, train_expression=None):
 
+    harmonic_mean = lambda a: -(np.log(1/len(a)) + misc.logsumexp(-1*a))
     if model.type == 'pm':
-        calc_num, calc_den = _bf_pm()
+        calc_alternate, calc_null = _bf_pm()
     elif model.type == 'prior':
-        calc_num, calc_den = _bf_prior()
+        calc_alternate, calc_null = _bf_prior()
     elif model.type == 'full':
-
-        print("Bayes factor 3 called")
-        calc_num, calc_den = _bf_full()
+        calc_alternate, calc_null = _bf_full()
 
     n_snps = genotypes.shape[1]
     beta_exp_trace = model.beta_exp_trace
@@ -243,20 +243,20 @@ def bayes_factor(model, genotypes, phenotype,
     beta_exp_sd = beta_exp_trace_reshaped.std(axis=1, ddof=1)
     expression = np.dot(beta_exp_mean, genotypes.T)
 
-    num = lambda step: calc_num(step, genotypes, phenotype, expression,
-                                beta_exp_mean, beta_exp_sd,
-                                train_genotypes, train_expression)
-    den = lambda step: calc_den(step, genotypes, phenotype, expression,
-                                beta_exp_mean, beta_exp_sd,
-                                train_genotypes, train_expression)
+    alternate = lambda step: calc_alternate(step, genotypes, phenotype, expression,
+                                            beta_exp_mean, beta_exp_sd,
+                                            train_genotypes, train_expression)
+    null = lambda step: calc_null(step, genotypes, phenotype, expression,
+                                  beta_exp_mean, beta_exp_sd,
+                                  train_genotypes, train_expression)
 
-    numerator = np.array(list((map(num, model.trace[-5000:])))).mean()
-    denominator = np.array(list((map(den, model.trace[-5000:])))).mean()
-    return (numerator - denominator)
+    alternate_log_prob = np.array(list((map(alternate, model.trace[-5000:]))))
+    null_log_prob = np.array(list((map(null, model.trace[-5000:]))))
+    return (harmonic_mean(alternate_log_prob) - harmonic_mean(null_log_prob))
 
 
 def _bf_pm():
-    def compute_logprob_numerator(step, genotypes, phenotype,
+    def compute_logprob_alternate(step, genotypes, phenotype,
                                   expression, 
                                   beta_exp_mean=None, beta_exp_sd=None,
                                   train_genotypes=None, train_expression=None):
@@ -266,7 +266,7 @@ def _bf_pm():
         log_p_y = np.log(stats.norm.pdf(phenotype, y_hat, step['sigma'])).sum()
         return log_p_sigma + log_p_beta + log_p_y
 
-    def compute_logprob_denominator(step, genotypes, phenotype,
+    def compute_logprob_null(step, genotypes, phenotype,
                                     expression=None, 
                                     beta_exp_mean=None, beta_exp_sd=None,
                                     train_genotypes=None, train_expression=None):
@@ -274,11 +274,11 @@ def _bf_pm():
             log_p_y = np.log(stats.norm.pdf(phenotype, 0, step['sigma'])).sum()
             return log_p_sigma + log_p_y
     
-    return compute_logprob_numerator, compute_logprob_denominator
+    return compute_logprob_alternate, compute_logprob_null
 
 
 def _bf_prior():
-    def compute_logprob_numerator(step, genotypes, phenotype,
+    def compute_logprob_alternate(step, genotypes, phenotype,
                                   expression=None, 
                                   beta_exp_mean=None, beta_exp_sd=None,
                                   train_genotypes=None, train_expression=None):
@@ -290,7 +290,7 @@ def _bf_prior():
         log_p_y = np.log(stats.norm.pdf(phenotype, y_hat, step['sigma'])).sum()
         return log_p_sigma + log_p_beta_exp + log_p_y + log_p_beta 
 
-    def compute_logprob_denominator(step, genotypes, phenotype,
+    def compute_logprob_null(step, genotypes, phenotype,
                                     expression=None, 
                                     beta_exp_mean=None, beta_exp_sd=None,
                                     train_genotypes=None, train_expression=None):
@@ -300,12 +300,14 @@ def _bf_prior():
         log_p_y = np.log(stats.norm.pdf(phenotype, 0, step['sigma'])).sum()
         return log_p_sigma + log_p_y + log_p_beta_exp
 
-    return compute_logprob_numerator, compute_logprob_denominator
+    return compute_logprob_alternate, compute_logprob_null
+
 
 def _bf_full():
-    def compute_logprob_numerator(step,
-                                  genotypes, phenotype,
-                                  train_genotypes, train_expression):
+    def compute_logprob_alternate(step, genotypes, phenotype,
+                                    expression=None, 
+                                    beta_exp_mean=None, beta_exp_sd=None,
+                                    train_genotypes=None, train_expression=None):
         log_p_beta_exp = np.log(stats.laplace.pdf(step['beta_exp'], 0, 1)).sum()
         log_p_sigma_exp = np.log(stats.halfcauchy.pdf(step['expression_sigma'], 0, 10))
         log_p_sigma_phen = np.log(stats.halfcauchy.pdf(step['phenotype_sigma'], 0, 10))
@@ -319,8 +321,10 @@ def _bf_full():
         log_p_phen = np.log(stats.norm.pdf(phenotype, phen_hat, step['phenotype_sigma'])).sum()
         return log_p_beta_exp + log_p_sigma_exp + log_p_sigma_phen + log_p_expression + log_p_phen + log_p_beta
 
-    def compute_logprob_denominator(step, genotypes, phenotype,
-                                     train_genotypes, train_expression):
+    def compute_logprob_null(step, genotypes, phenotype,
+                                    expression=None, 
+                                    beta_exp_mean=None, beta_exp_sd=None,
+                                    train_genotypes=None, train_expression=None):
         log_p_beta_exp = np.log(stats.laplace.pdf(step['beta_exp'], 0, 1)).sum()
         log_p_sigma_exp = np.log(stats.halfcauchy.pdf(step['expression_sigma'], 0, 10))
         log_p_sigma_phen = np.log(stats.halfcauchy.pdf(step['phenotype_sigma'], 0, 10))
@@ -329,4 +333,4 @@ def _bf_full():
         log_p_phen = np.log(stats.norm.pdf(phenotype, 0, step['phenotype_sigma'])).sum()
         return log_p_beta_exp + log_p_sigma_exp + log_p_sigma_phen + log_p_expression + log_p_phen
 
-    return compute_logprob_numerator, compute_logprob_denominator
+    return compute_logprob_alternate, compute_logprob_null
