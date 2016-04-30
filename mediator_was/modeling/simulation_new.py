@@ -204,7 +204,7 @@ class Study(object):
         self.id = '_'.join(map(str, [name, pve, len(causal_genes), seed, current_milli_time(),]))
         self.causal_genes = [gene.id for gene in causal_genes]
         #self.causal_genes = causal_genes
-        self.beta = numpy.ones(size=len(causal_genes))
+        self.beta = numpy.ones(len(causal_genes))
         #self.beta = R.normal(size=len(causal_genes))
         self.pve = pve
         self.n_samples = n_samples
