@@ -54,6 +54,7 @@ if __name__ == "__main__":
         if sys.argv[1] == "simulate_gene":
             print('Simulating gene {}'.format(sys.argv[2]))
             p_causal_eqtls = float(sys.argv[5]) if len(sys.argv) > 5 else .1
+            print('p_causal_eqtls {}'.format(p_causal_eqtls))
             simulate_gene(sys.argv[2], sys.argv[3], sys.argv[4],
                           p_causal_eqtls=p_causal_eqtls)
         elif sys.argv[1] == "simulate_study":
