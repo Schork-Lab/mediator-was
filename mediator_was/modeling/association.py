@@ -1,3 +1,4 @@
+
 """Compute TWAS p-values, corrected for prediction error
 
 Author: Abhishek Sarkar <aksarkar@mit.edu>
@@ -15,6 +16,7 @@ import numpy.linalg
 import scipy.stats
 import statsmodels.api
 import statsmodels.tools
+import pandas as pd
 
 # Freeze this for efficiency
 _chi2 = scipy.stats.chi2(1).sf
@@ -283,7 +285,7 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
             print(numpy.var(expression, ddof=1),  numpy.mean(sigma_u), file=sys.stderr)
             return 0, 1
         mu_x = numpy.mean(design, axis=0)
-        imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * wi]
+        imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * (wi - mu_x[1])]
                                           for ui, wi in zip(sigma_u, expression)])
         fit = model(phenotype, imputed_expression).fit()
         pseudo_residuals = phenotype - numpy.dot(design, fit.params)
@@ -299,6 +301,22 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
         coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
 
     return coeff, se
+
+def multiple_imputation(expression, phenotype):
+    """
+    Conduct multiple OLS with array of predicted expressions
+    
+    expression - n x m with m models of expression
+    """
+    association_df = pd.DataFrame(numpy.apply_along_axis(lambda x: t(x, phenotype), 1, expression))
+    association_df.columns = ['coeff', 'se', 'pvalue']
+    coeff = association_df['coeff'].mean()
+    W = association_df['coeff'].var(ddof=1)
+    B = (association_df['se']**2).mean()
+    var = W+(1+1./association_df.shape[0])*B
+    se = numpy.sqrt(var)
+    return coeff, se, _chi2((coeff**2)/var)
+
 
 def t(expression, phenotype, sigma_u=None, method="OLS"):
     """Test for association of continuous phenotype to expression."""
@@ -327,6 +345,7 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
     else:
         raise NotImplementedError
     return coeff, se, _chi2(coeff * coeff / (se * se))
+
 
 def lr(expression, phenotype, sigma_u=None):
     """Test for association between binary phenotype and expression."""
