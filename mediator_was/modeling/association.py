@@ -1,3 +1,4 @@
+
 """Compute TWAS p-values, corrected for prediction error
 
 Author: Abhishek Sarkar <aksarkar@mit.edu>
@@ -284,7 +285,7 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
             print(numpy.var(expression, ddof=1),  numpy.mean(sigma_u), file=sys.stderr)
             return 0, 1
         mu_x = numpy.mean(design, axis=0)
-        imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * wi]
+        imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * (wi - mu_x[1])]
                                           for ui, wi in zip(sigma_u, expression)])
         fit = model(phenotype, imputed_expression).fit()
         pseudo_residuals = phenotype - numpy.dot(design, fit.params)
