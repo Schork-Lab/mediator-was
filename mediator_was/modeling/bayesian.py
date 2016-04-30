@@ -101,7 +101,7 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
         # step2 = pm.Metropolis([beta_phen, sigma])
         # phenotype_trace = pm.sample(20000, step=[step1, step2], start=start,
         #                             progressbar=True)
-        phenotype_trace = pm.sample(30000, step=pm.NUTS(), start=start,
+        phenotype_trace = pm.sample(150000, step=pm.Metropolis(), start=start,
                                             progressbar=True)
     return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], 'prior')
 
@@ -142,7 +142,7 @@ def full_model(exp_genotypes, expression,
         start = pm.find_MAP()
         step1 = pm.Metropolis([beta_exp, expression_sigma])
         step2 = pm.NUTS([beta_phen, phenotype_sigma])
-        phenotype_trace = pm.sample(125000, step=pm.Metropolis(), start=start, progressbar=True)
+        phenotype_trace = pm.sample(200000, step=pm.Metropolis(), start=start, progressbar=True)
         # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
     return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
 
