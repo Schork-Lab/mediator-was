@@ -6,7 +6,7 @@ import pymc3 as pm
 
 
 def simulate_gene(gene_name, plink_file, out_file=None, *args, **kwargs):
-    gene = s.Gene(gene_name, plink_file)
+    gene = s.Gene(gene_name, plink_file, *args, **kwargs)
     print('Writing out file: {}'.format(out_file))
     with open(out_file, 'wb') as f:
         pickle.dump(gene, f)
