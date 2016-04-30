@@ -20,7 +20,7 @@ def simulate_study(study_name, gene_list_file, out_file=None, *args, **kwargs):
             with pm.Model():
                 gene = pickle.load(open(line.rstrip(), 'rb'))
             genes.append(gene)
-    study = s.Study(study_name, genes)
+    study = s.Study(study_name, genes, *args, **kwargs)
     with open(out_file, 'wb') as f:
         pickle.dump(study, f)
     return
@@ -60,7 +60,8 @@ if __name__ == "__main__":
         elif sys.argv[1] == "simulate_study":
             print('Simulating study phenotype '.format(sys.argv[2]))
             seed = sys.argv[5] if len(sys.argv) > 5 else 0
-            simulate_study(sys.argv[2], sys.argv[3], sys.argv[4], seed)
+            print('Seed: {}'.format(seed))
+            simulate_study(sys.argv[2], sys.argv[3], sys.argv[4], seed=seed)
         elif sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[3], sys.argv[4]))
             associate(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])

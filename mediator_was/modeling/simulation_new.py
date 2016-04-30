@@ -73,7 +73,7 @@ class Gene():
 
 
     Args:
-        If n_causal > 0, p_causal_eqtls is not used.
+        If p_causal_eqtls = 0, number of causal snps = 1
         bootstrap_params: tuple(number of individuals per boostrap, number of bootstraps)
 
 
@@ -93,7 +93,7 @@ class Gene():
     '''
 
     def __init__(self, name, plink_file, n_train=500, p_causal_eqtls=0.1, pve=0.17, pve_se=0.05,
-                 n_causal=0, bootstrap_params=(350, 25)):
+                 bootstrap_params=(350, 25)):
 
         # Set parameters
         R.seed(0)
@@ -104,7 +104,6 @@ class Gene():
         self.p_causal_eqtls = p_causal_eqtls
         self.pve = pve
         self.pve_se = pve_se
-        self.n_causal = n_causal
         self.bootstrap_params = bootstrap_params
 
         # Generate data
@@ -120,10 +119,10 @@ class Gene():
         self.haps = load_plink(self.plink_file)
         n_snps = len(self.haps)
         self.haps.index = range(n_snps)
-        if self.n_causal == 0:
-            n_causal_eqtls = numpy.round(n_snps*self.p_causal_eqtls)
+        if self.p_causal_eqtls == 0:
+            n_causal_eqtls = 1
         else:
-            n_causal_eqtls = self.n_causal
+            n_causal_eqtls = numpy.round(n_snps*self.p_causal_eqtls)
         self.causal_loci = self._sample_causal_loci(n_causal_eqtls)
         self.beta = numpy.zeros(n_snps)
         self.beta[self.causal_loci] = R.normal(size=n_causal_eqtls)
@@ -205,7 +204,8 @@ class Study(object):
         self.id = '_'.join(map(str, [name, pve, len(causal_genes), seed, current_milli_time(),]))
         self.causal_genes = [gene.id for gene in causal_genes]
         #self.causal_genes = causal_genes
-        self.beta = R.normal(size=len(causal_genes))
+        self.beta = np.ones(size=len(causal_genes))
+        #self.beta = R.normal(size=len(causal_genes))
         self.pve = pve
         self.n_samples = n_samples
         self._generate(causal_genes)
