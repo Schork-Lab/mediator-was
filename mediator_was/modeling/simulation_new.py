@@ -417,15 +417,23 @@ class Power():
                 self.pr_df = self.precision_recall_df(association_dir=association_dir)     
         else:
             self.study = study
-            self.pr_df = self.precision_recall_df(associations)  
+            self._create_association_dfs(associations, association_dir)   
+            self.pr_df = self.precision_recall_df()  
+            self.roc_df = self.roc_df()
         return
 
-    def precision_recall_df(self, associations=None, association_dir=None):
-        self._create_association_dfs(associations, association_dir)      
+    def precision_recall_df(self):   
         precision_recall_df = pd.concat([self.f_estimator_df[['estimator', 'precision', 'recall']],
                                          self.b_estimator_df[['estimator', 'precision', 'recall']],
                                          self.bf_estimator_df[['estimator', 'precision', 'recall']]])
         return precision_recall_df
+
+    def roc_df(self):   
+        roc_df = pd.concat([self.f_estimator_df[['estimator', 'fpr', 'recall']],
+                                         self.b_estimator_df[['estimator', 'fpr', 'recall']],
+                                         self.bf_estimator_df[['estimator', 'fpr', 'recall']]])
+        return roc_df
+
 
 
     def _calc_bayes_df(self, association):
@@ -491,20 +499,19 @@ class Power():
     def _calculate_estimator_df(self, association_df, estimator, sort_func=lambda x: x.sort_values('pvalue')):
         estimator_df = pd.DataFrame.copy(association_df.ix[estimator])
         estimator_df['in_study'] = estimator_df.index.map(lambda x: True if x in self.study.gene_map else False)
+        total_alternate = estimator_df['in_study'].sum()
+        total_null = estimator_df.shape[0]-total_alternate
+        fprs, fdrs, recalls, precisions = [], [], [], []
         estimator_df = sort_func(estimator_df)
-        fdrs = []
-        recalls = []
-        precisions = []
         for i in range(1, estimator_df.shape[0]+1):
             num_correct = float(sum(estimator_df['in_study'][:i]))
             num_incorrect = i - num_correct
-            recall = num_correct / len(self.study.beta)
-            precision = num_correct / i
-            fdr = num_incorrect / i
-            fdrs.append(fdr)
-            precisions.append(precision)
-            recalls.append(recall)
+            fprs.append(num_incorrect / total_null)
+            fdrs.append(num_incorrect / i)
+            precisions.append(num_correct / i)
+            recalls.append(num_correct / total_alternate)
         estimator_df['fdr'] = fdrs
+        estimator_df['fpr'] = fprs
         estimator_df['precision'] = precisions
         estimator_df['recall'] = recalls
         estimator_df['estimator'] = estimator
