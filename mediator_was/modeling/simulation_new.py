@@ -414,12 +414,12 @@ class Power():
             with pm.Model():
                 study_file = os.path.join(association_dir, "study.pkl")
                 self.study = pickle.load(open(study_file, 'rb'))
-                self.pr_df = self.precision_recall_df(association_dir=association_dir)     
         else:
             self.study = study
-            self._create_association_dfs(associations, association_dir)   
-            self.pr_df = self.precision_recall_df()  
-            self.roc_df = self.roc_df()
+            
+        self._create_association_dfs(associations, association_dir)   
+        self.pr_df = self.precision_recall_df()  
+        self.roc_df = self.roc_df()
         return
 
     def precision_recall_df(self):   
@@ -447,7 +447,6 @@ class Power():
         bf_df.index = pd.MultiIndex.from_tuples([(index, association.gene) for index in
                                                 bf_df.index])
         return bf_df
-
 
     def _create_association_dfs(self, associations=None, association_dir=None):
         print(association_dir)
