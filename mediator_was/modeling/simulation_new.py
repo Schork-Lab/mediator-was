@@ -414,8 +414,9 @@ class Power():
     def __init__(self, study=None, associations=None, association_dir=None):
         if association_dir:
             self.association_dir = association_dir
+            study_file = glob.glob(association_dir+'*study.pkl')[0]
             with pm.Model():
-                study_file = os.path.join(association_dir, "study.pkl")
+                #study_file = os.path.join(association_dir, "study.pkl")
                 self.study = pickle.load(open(study_file, 'rb'))
         else:
             self.study = study
@@ -426,14 +427,16 @@ class Power():
 
     def precision_recall_df(self):   
         precision_recall_df = pd.concat([self.f_estimator_df[['estimator', 'precision', 'recall']],
-                                         self.b_estimator_df[['estimator', 'precision', 'recall']],
-                                         self.bf_estimator_df[['estimator', 'precision', 'recall']]])
+                                         # self.b_estimator_df[['estimator', 'precision', 'recall']],
+                                         # self.bf_estimator_df[['estimator', 'precision', 'recall']]
+                                         ])
         return precision_recall_df
 
     def roc_df(self):   
         roc_df = pd.concat([self.f_estimator_df[['estimator', 'fpr', 'recall']],
-                                         self.b_estimator_df[['estimator', 'fpr', 'recall']],
-                                         self.bf_estimator_df[['estimator', 'fpr', 'recall']]])
+                                         # self.b_estimator_df[['estimator', 'fpr', 'recall']],
+                                         # self.bf_estimator_df[['estimator', 'fpr', 'recall']]
+                            ])
         return roc_df
 
 
@@ -460,19 +463,19 @@ class Power():
                 for fn in glob.glob(association_dir + '/assoc*.pkl'):
                     association = pickle.load(open(fn, 'rb'))
                     f_association_dfs.append(association.create_frequentist_df())
-                    b_association_dfs.append(association.create_mse_df())
-                    bf_association_dfs.append(association.create_bf_df())
+                    # b_association_dfs.append(association.create_mse_df())
+                    # bf_association_dfs.append(association.create_bf_df())
                     del association
             self.f_association_df = pd.concat(f_association_dfs)
-            self.b_association_df = pd.concat(b_association_dfs)
-            self.bf_association_df = pd.concat(bf_association_dfs)
+            # self.b_association_df = pd.concat(b_association_dfs)
+            # self.bf_association_df = pd.concat(bf_association_dfs)
         else:
             self.f_association_df = pd.concat([association.create_frequentist_df()
                                               for association in associations])
-            self.b_association_df = pd.concat([association.create_mse_df()
-                                              for association in associations])
-            self.bf_association_df = pd.concat([association.create_bf_df()
-                                               for association in associations])
+            # self.b_association_df = pd.concat([association.create_mse_df()
+            #                                   for association in associations])
+            # self.bf_association_df = pd.concat([association.create_bf_df()
+            #                                    for association in associations])
 
 
 
@@ -480,20 +483,20 @@ class Power():
         self.f_estimator_df = pd.concat(map(f_estimator,
                                             self.f_association_df.index.levels[0]))
 
-        b_sort = lambda x: x.sort_values('mse')
-        b_estimator = lambda x: self._calculate_estimator_df(self.b_association_df, 
-                                                              x,
-                                                              b_sort)
-        self.b_estimator_df = pd.concat(map(b_estimator,
-                                            self.b_association_df.index.levels[0]))
+        # b_sort = lambda x: x.sort_values('mse')
+        # b_estimator = lambda x: self._calculate_estimator_df(self.b_association_df, 
+        #                                                       x,
+        #                                                       b_sort)
+        # self.b_estimator_df = pd.concat(map(b_estimator,
+        #                                     self.b_association_df.index.levels[0]))
 
 
-        bf_sort = lambda x: x.sort_values('psuedo_bf', ascending=False)
-        bf_estimator = lambda x: self._calculate_estimator_df(self.bf_association_df, 
-                                                              x,
-                                                              bf_sort)
-        self.bf_estimator_df = pd.concat(map(bf_estimator,
-                                            self.bf_association_df.index.levels[0]))
+        # bf_sort = lambda x: x.sort_values('psuedo_bf', ascending=False)
+        # bf_estimator = lambda x: self._calculate_estimator_df(self.bf_association_df, 
+        #                                                       x,
+        #                                                       bf_sort)
+        # self.bf_estimator_df = pd.concat(map(bf_estimator,
+        #                                     self.bf_association_df.index.levels[0]))
 
         return
 
