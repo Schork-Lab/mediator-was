@@ -59,7 +59,7 @@ def _fit_bootstrapped_EN(bootstrap_params, genotypes, expression):
     for i in range(bootstrap_params[1]):
         b_genotypes, b_expression = sklearn.utils.resample(genotypes, expression, 
                                                            n_samples=bootstrap_params[0])
-        b_model = model(max_iter=10000).fit(b_genotypes, b_expression)
+        b_model = model(max_iter=10000, n_jobs=12).fit(b_genotypes, b_expression)
         b_models.append(b_model)
     return b_models
 
@@ -93,12 +93,12 @@ class Gene():
     '''
 
     def __init__(self, name, plink_file, n_train=500, p_causal_eqtls=0.1, pve=0.17, pve_se=0.05,
-                 bootstrap_params=(350, 25)):
+                 bootstrap_params=(350, 25), seed=0, haps=None):
 
         # Set parameters
-        R.seed(0)
+        R.seed(seed)
         self.name = name
-        self.id = '_'.join(map(str, [name, p_causal_eqtls, pve, current_milli_time()]))
+        self.id = '_'.join(map(str, [name, p_causal_eqtls, pve, seed, current_milli_time()]))
         self.plink_file = plink_file
         self.n_train = n_train
         self.p_causal_eqtls = p_causal_eqtls
@@ -107,16 +107,19 @@ class Gene():
         self.bootstrap_params = bootstrap_params
 
         # Generate data
-        self._generate_params()
+        self._generate_params(haps)
         self._train()
 
         return
 
-    def _generate_params(self,):
+    def _generate_params(self, haps=None):
         '''
         Load gene haplotypes and generate causal snps
         '''
-        self.haps = load_plink(self.plink_file)
+        if haps is None:
+            self.haps = load_plink(self.plink_file)
+        else:
+            self.haps = haps
         n_snps = len(self.haps)
         self.haps.index = range(n_snps)
         if self.p_causal_eqtls == 0:
@@ -149,8 +152,8 @@ class Gene():
         self.bootstrap_models = _fit_bootstrapped_EN(self.bootstrap_params,
                                                      self.train_genotypes,
                                                      self.train_expression)
-        self.bayesian_model = bay.expression_model(self.train_genotypes,
-                                                   self.train_expression)
+        #self.bayesian_model = bay.expression_model(self.train_genotypes,
+        #                                           self.train_expression)
         self.ols_model = _fit_OLS(self.train_genotypes, self.train_expression)
         return
 
@@ -269,8 +272,8 @@ class Association(object):
 
 
     '''
-    def __init__(self, name, gene, study):
-        R.seed(0)
+    def __init__(self, name, gene, study, seed=0):
+        R.seed(seed)
         self.name = name
         self.gene = gene.id
         self.study = study.id
@@ -292,8 +295,8 @@ class Association(object):
 
 
         self._test_frequentist(gene)
-        self._fit_bayesian(gene)
-        self._test_bayesian(gene)
+        # self._fit_bayesian(gene)
+        # self._test_bayesian(gene)
         
         return
 
@@ -317,39 +320,39 @@ class Association(object):
         sigma_ui_bootstrap = numpy.var(pred_expr, ddof=1, axis=0)
 
         # Bayesian
-        exp_model = gene.bayesian_model
-        beta_exp_trace = exp_model.trace[-5000::100]['beta_exp']
-        beta_exp_trace = numpy.array([beta_exp_trace[:, 0][:, idx]
-                                     for idx in range(genotype.shape[1])])
-        pred_expr_bay = numpy.apply_along_axis(lambda x: genotype.dot(x.T),
-                                               0,
-                                               beta_exp_trace).T
-        w_bay = numpy.mean(pred_expr_bay, axis=0)
-        sigma_ui_bay = numpy.var(pred_expr_bay, ddof=1, axis=0)
+        # exp_model = gene.bayesian_model
+        # beta_exp_trace = exp_model.trace[-5000::100]['beta_exp']
+        # beta_exp_trace = numpy.array([beta_exp_trace[:, 0][:, idx]
+        #                              for idx in range(genotype.shape[1])])
+        # pred_expr_bay = numpy.apply_along_axis(lambda x: genotype.dot(x.T),
+        #                                        0,
+        #                                        beta_exp_trace).T
+        # w_bay = numpy.mean(pred_expr_bay, axis=0)
+        # sigma_ui_bay = numpy.var(pred_expr_bay, ddof=1, axis=0)
 
         association = {'OLS': t(w, phenotype, method="OLS"),
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
                                            method="OLS"),
-                       'OLS-Bayesian': t(w_bay, phenotype,
-                                         method="OLS"),
-                       'WLS': t(w, phenotype, sigma_ui, method="WLS"),
-                       'Moment': t(w, phenotype, sigma_ui, method="moment"),
-                       'Moment2': t(w, phenotype, sigma_ui, method="moment2"),
-                       'Moment-Buo': t(w, phenotype, sigma_ui,
-                                       method="momentbuo"),
-                       'RC': t(w, phenotype, sigma_ui, method="rc"),
+                       #'OLS-Bayesian': t(w_bay, phenotype,
+                       # #                  method="OLS"),
+                       # 'WLS': t(w, phenotype, sigma_ui, method="WLS"),
+                       # 'Moment': t(w, phenotype, sigma_ui, method="moment"),
+                       # 'Moment2': t(w, phenotype, sigma_ui, method="moment2"),
+                       # 'Moment-Buo': t(w, phenotype, sigma_ui,
+                       #                 method="momentbuo"),
+                       # 'RC': t(w, phenotype, sigma_ui, method="rc"),
                        'RC-hetero-bootstrapped': t(w_bootstrap, phenotype,
                                                    sigma_ui_bootstrap,
                                                    method='rc-hetero'),
-                       'RC-hetero-se': t(w, phenotype, sigma_ui,
-                                         method="rc-hetero"),
-                       'RC-hetero-bay': t(w_bay, phenotype, sigma_ui_bay,
-                                          method="rc-hetero"),
+                       # 'RC-hetero-se': t(w, phenotype, sigma_ui,
+                       #                   method="rc-hetero"),
+                       #'RC-hetero-bay': t(w_bay, phenotype, sigma_ui_bay,
+                       #                   method="rc-hetero"),
                        # TODO: 'RC-Log' to have multiplicative error.
-                       'Weighted': t(w, phenotype, sigma_ui,
-                                     method="weighted"),
+                       # 'Weighted': t(w, phenotype, sigma_ui,
+                       #               method="weighted"),
                        'MI-Bootstrapped': multiple_imputation(pred_expr, phenotype),
-                       'MI-Bayesian': multiple_imputation(pred_expr_bay, phenotype),
+                       #'MI-Bayesian': multiple_imputation(pred_expr_bay, phenotype),
                        }
         self.f_association = association
         return
@@ -416,7 +419,6 @@ class Power():
                 self.study = pickle.load(open(study_file, 'rb'))
         else:
             self.study = study
-            
         self._create_association_dfs(associations, association_dir)   
         self.pr_df = self.precision_recall_df()  
         self.roc_df = self.roc_df()
