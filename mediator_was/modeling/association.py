@@ -21,6 +21,7 @@ import pandas as pd
 # Freeze this for efficiency
 _chi2 = scipy.stats.chi2(1).sf
 
+
 def standardize(values, center=True, unit_variance=True):
     if center:
         values = values - numpy.mean(values)
@@ -28,12 +29,14 @@ def standardize(values, center=True, unit_variance=True):
         values = values / numpy.std(values)
     return values
 
+
 def gwas(genotypes, phenotype):
     """Compute the best GWAS p-value in the locus"""
     if len(genotypes.shape) == 1:
         return t(genotypes, phenotype, method="OLS")[2]
     else:
         return min(t(g, phenotype, method="OLS")[2] for g in genotypes.T)
+
 
 def _weighted_moment_estimator(expression, phenotype, sigma_u):
     '''
@@ -84,7 +87,8 @@ def _weighted_moment_estimator(expression, phenotype, sigma_u):
     return coeff, se
 
 
-def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=True, num_replicates=4):
+def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, 
+                                  homoscedastic=True, num_replicates=4):
     '''
     Moment estimator based on Chapter 5 Buonaccorsi.
     '''
@@ -94,7 +98,7 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=
     constant_sigma_u = numpy.mean(sigma_u)
     Sigma_hat_XX = S_WW - constant_sigma_u
     Sigma_hat_XY = numpy.cov(expression, phenotype, ddof=1)[0, 1]
-    
+
     # Eq 5.9
     coeff = Sigma_hat_XY / Sigma_hat_XX 
     intercept = numpy.mean(phenotype) - coeff*numpy.mean(expression) 
@@ -106,7 +110,7 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=
     residual_variance /= (n - 2)
     residual_variance -= coeff * coeff * sigma_u
 
-  
+
     design = statsmodels.tools.add_constant(expression)
     Sigma_hat_u = numpy.array([[0, 0], [0, constant_sigma_u]])
     M_hat_XX = numpy.dot(design.T, design) / n - Sigma_hat_u
@@ -155,15 +159,17 @@ def _moment_estimator_buonaccorsi(expression, phenotype, sigma_u, homoscedastic=
 
     return coeff, se
 
+
 def _moment_estimator_2(expression, phenotype, sigma_u=None):
-    '''Compute robust moment estimator based on Fuller pp. 166-170. 
+    '''
+    Compute robust moment estimator based on Fuller pp. 166-170. 
     It is less impacted by high error expression variance.
     '''
     if sigma_u is None:
         expression_error_var = 0
     else:
         expression_error_var = numpy.mean(sigma_u)
-   
+
     n = phenotype.shape[0]
     expression = expression - numpy.mean(expression)
     phenotype = phenotype - numpy.mean(phenotype)
@@ -187,6 +193,7 @@ def _moment_estimator_2(expression, phenotype, sigma_u=None):
     coeff_var /= n+1
     se = numpy.sqrt(coeff_var)
     return coeff, se
+
 
 def _moment_estimator(expression, phenotype, sigma_u=None,
                       model_check=False):
@@ -237,7 +244,8 @@ def _moment_estimator(expression, phenotype, sigma_u=None,
         return coeff, se, true_expression, residuals
 
 
-def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic=True):
+def _regression_calibration(model, expression, phenotype, sigma_u,
+                            homoscedastic=True):
     """Compute regression calibration estimates for model given expression,
     phenotype, and estimated errors.
 
@@ -256,12 +264,12 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
         error_cov = numpy.array([[0, 0], [0, numpy.mean(sigma_u)]])
         # TODO: this could be "negative". See Buonaccorsi p. 121
         expression_cov = numpy.cov(design.T, ddof=1) - error_cov
-        if expression_cov[1,1] < 0:
+        if expression_cov[1, 1] < 0:
             print("Warning: correcting negative estimate", file=sys.stderr)
             print(expression_cov, error_cov, file=sys.stderr)
             return 0, 1
         # Hack to make reliability make sense
-        expression_cov[0,0] = 1
+        expression_cov[0, 0] = 1
         try:
             reliability = numpy.linalg.inv(expression_cov + error_cov).dot(expression_cov)
         except:
@@ -276,36 +284,36 @@ def _regression_calibration(model, expression, phenotype, sigma_u, homoscedastic
         coeff_cov = M.dot(H).dot(M)
         coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
     else:
-
-        # Speed up so fewer computations
         expression_cov = numpy.var(expression, ddof=1) - numpy.mean(sigma_u)
-        #expression_cov = numpy.var(expression - sigma_u)
         if expression_cov < 0:
             print("Warning: correcting negative estimate", file=sys.stderr)
-            print(numpy.var(expression, ddof=1),  numpy.mean(sigma_u), file=sys.stderr)
-            return 0, 1
+            print(numpy.var(expression, ddof=1), numpy.mean(sigma_u),
+                  file=sys.stderr)
+        # Imputed heteroscedastic values (only univariate case)
         mu_x = numpy.mean(design, axis=0)
         imputed_expression = numpy.array([[1, mu_x[1] + expression_cov/(expression_cov + ui) * (wi - mu_x[1])]
                                           for ui, wi in zip(sigma_u, expression)])
         fit = model(phenotype, imputed_expression).fit()
+
+        # Robust Covariance
         pseudo_residuals = phenotype - numpy.dot(design, fit.params)
-        error_matrix = numpy.array([numpy.array([[0, 0], [0, ui]]).dot(fit.params) for ui in sigma_u])
-        delta = pseudo_residuals[:,numpy.newaxis] * design + error_matrix
-        H = delta.T.dot(delta) / (n * (n - design.shape[1]))
         error_cov = numpy.array([[0, 0], [0, numpy.mean(sigma_u)]])
-        # TODO: this could be "negative". See Buonaccorsi p. 121
         expression_cov = numpy.cov(design.T, ddof=1) - error_cov
         expression_cov[0, 0] = 1
         M = numpy.linalg.inv(expression_cov)
+        error_matrix = numpy.array([numpy.array([[0, 0], [0, ui]]).dot(fit.params)
+                                    for ui in sigma_u])
+        delta = pseudo_residuals[:, numpy.newaxis] * design + error_matrix
+        H = delta.T.dot(delta) / (n * (n - design.shape[1]))    
         coeff_cov = M.dot(H).dot(M)
         coeff, se = fit.params[1], numpy.sqrt(coeff_cov[1, 1])
-
     return coeff, se
+
 
 def multiple_imputation(expression, phenotype):
     """
     Conduct multiple OLS with array of predicted expressions
-    
+
     expression - n x m with m models of expression
     """
     association_df = pd.DataFrame(numpy.apply_along_axis(lambda x: t(x, phenotype), 1, expression))
@@ -313,9 +321,9 @@ def multiple_imputation(expression, phenotype):
     coeff = association_df['coeff'].mean()
     W = association_df['coeff'].var(ddof=1)
     B = (association_df['se']**2).mean()
-    var = W+(1+1./association_df.shape[0])*B
+    var = W + (1 + 1. / association_df.shape[0]) * B
     se = numpy.sqrt(var)
-    return coeff, se, _chi2((coeff**2)/var)
+    return coeff, se, _chi2((coeff**2) / var)
 
 
 def t(expression, phenotype, sigma_u=None, method="OLS"):
@@ -323,13 +331,24 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
     if method == "moment":
         coeff, se = _moment_estimator(expression, phenotype, sigma_u)
     elif method == "moment2":
-        coeff, se = _moment_estimator_buonaccorsi(expression, phenotype, sigma_u)
+        coeff, se = _moment_estimator_buonaccorsi(expression,
+                                                  phenotype,
+                                                  sigma_u)
     elif method == "momentbuo":
-        coeff, se = _moment_estimator_buonaccorsi(expression, phenotype, sigma_u)
+        coeff, se = _moment_estimator_buonaccorsi(expression,
+                                                  phenotype,
+                                                  sigma_u)
     elif method == "rc":
-        coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u)
+        coeff, se = _regression_calibration(statsmodels.api.OLS,
+                                            expression,
+                                            phenotype,
+                                            sigma_u)
     elif method == "rc-hetero":
-        coeff, se = _regression_calibration(statsmodels.api.OLS, expression, phenotype, sigma_u, homoscedastic=False)
+        coeff, se = _regression_calibration(statsmodels.api.OLS,
+                                            expression,
+                                            phenotype,
+                                            sigma_u,
+                                            homoscedastic=False)
     elif method == "weighted":
         coeff, se = _weighted_moment_estimator(expression, phenotype, sigma_u)
     elif method == "OLS":
@@ -339,7 +358,7 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
     elif method == "WLS":
         design = statsmodels.tools.add_constant(expression)
         sigma_u = numpy.sqrt(sigma_u)
-        weights = 1./sigma_u
+        weights = 1. / sigma_u
         fit = statsmodels.api.WLS(phenotype, design, weights=weights).fit()
         coeff, se = fit.params[1], fit.bse[1]
     else:
@@ -347,7 +366,12 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
     return coeff, se, _chi2(coeff * coeff / (se * se))
 
 
-def lr(expression, phenotype, sigma_u=None):
+def lr(expression, phenotype, sigma_u=None, method='logistic'):
     """Test for association between binary phenotype and expression."""
-    coeff, se = _regression_calibration(statsmodels.api.Logit, expression, phenotype, sigma_u)
-    return se, _chi2(coeff * coeff / (se * se))
+    if method == 'logistic':
+        design = statsmodels.tools.add_constant(expression)
+        fit = statsmodels.api.Logit(phenotype, design).fit(disp=False)
+        coeff, se = fit.params[1], fit.bse[1]
+    else:
+        raise NotImplementedError
+    return coeff, se, _chi2(coeff * coeff / (se * se))

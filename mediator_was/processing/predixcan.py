@@ -38,10 +38,11 @@ def add_positions_to_database(en_df,
 
 def load_gencode(gencode=gencode):
     gencode_df = pd.read_table(gencode, header=None, skiprows=5, sep="\t")
-    gencode_df.rename(columns={0: 'chromosome', 8: 'info'}, inplace=True)
+    gencode_df.rename(columns={0: 'chromosome', 2: 'type', 3: 'start', 4: 'end', 8: 'info'}, inplace=True)
+    gencode_df = gencode_df[gencode_df['type'] == 'gene']
     gencode_df['gene'] = gencode_df['info'].map(lambda x: x.split('gene_id')[1].split()[0].split('"')[1])
     gencode_df['gene_name'] = gencode_df['info'].map(lambda x: x.split('gene_name')[1].split()[0].split('"')[1])
-    gencode_df = gencode_df[['chromosome', 'gene', 'gene_name']].drop_duplicates().set_index(['gene'])
+    gencode_df = gencode_df[['chromosome', 'start', 'end', 'gene', 'gene_name']].drop_duplicates().set_index(['gene'])
     return gencode_df
 
 def load_database(fn=en_db,
