@@ -5,11 +5,22 @@ import sklearn.linear_model
 from sklearn.utils import resample
 
 
-imputed_loci = pd.read_table("../../data/RA.bim", header=None)
+imputed_loci = pd.read_table("/projects/ps-jcvi/projects/mediator_was/data/RA.bim", header=None)
 imputed_loci = set(imputed_loci[0].astype(str)+'_'+imputed_loci[3].astype(str))
 
 def refit_gene(gene):
+    def create_coeff_df(model, allele_df):
+        coef_df = pd.DataFrame(model.coef_[:allele_df.shape[1]], index=allele_df.columns, columns=['beta'])
+        coef_df['chromosome'] = coef_df.index.map(lambda x: x.split('_')[0])
+        coef_df['position'] = coef_df.index.map(lambda x: x.split('_')[1])
+        coef_df['ref'] = coef_df.index.map(lambda x: x.split('_')[2])
+        coef_df['alt'] = coef_df.index.map(lambda x: x.split('_')[3])
+        coef_df['gene'] = gene
+        coef_df = coef_df[coef_df.beta != 0]
+        return coeff_df
+
     print('Fitting {}'.format(gene))
+    coef_dfs = []
     main_dir = "/mounts/tscc/projects/mediator_was/results/{}/".format(gene)
 
     samples = pd.read_table(os.path.join(main_dir, gene+'.samples'), header=None)[0]
@@ -36,26 +47,26 @@ def refit_gene(gene):
     full_model = sklearn.linear_model.ElasticNetCV(l1_ratio=l1_ratio_range, max_iter=10000)
     full_model.fit(design, expression.values.ravel())
     
-    with open(os.path.join(main_dir, "bootstrap_params.txt"), "w") as OUT:
+    coef_df = create_coeff_df(full_model, allele_df)
+    coef_df['bootstrap'] = 'full'
+    coef_dfs.append(coef_df)
+
+    with open(os.path.join(main_dir, "bootstrap_params_v2.txt"), "w") as OUT:
         OUT.write("L1 ratio: {} \n".format(full_model.l1_ratio_))
         OUT.write("Alpha: {} \n".format(full_model.alpha_))
 
-    coef_dfs = []
+    
     for i in range(50):
         b_samples = resample(samples, replace=False, n_samples=300)
         model = sklearn.linear_model.ElasticNet(alpha=full_model.alpha_, 
                                                  l1_ratio=full_model.l1_ratio_, 
                                                  max_iter=10000)
-        #model = sklearn.linear_model.ElasticNetCV(n_alphas=100, n_jobs=36, l1_ratio=l1_ratio_range, max_iter=10000)
+        #model = sklearn.linear_model.ElasticNetCV(n_alphas=100, n_jobs=36, 
+        #                                          l1_ratio=l1_ratio_range, 
+        #                                          max_iter=10000)
         model.fit(design.ix[b_samples], expression.ix[b_samples].values.ravel())
-        coef_df = pd.DataFrame(model.coef_[:allele_df.shape[1]], index=allele_df.columns, columns=['beta'])
-        coef_df['chromosome'] = coef_df.index.map(lambda x: x.split('_')[0])
-        coef_df['position'] = coef_df.index.map(lambda x: x.split('_')[1])
-        coef_df['ref'] = coef_df.index.map(lambda x: x.split('_')[2])
-        coef_df['alt'] = coef_df.index.map(lambda x: x.split('_')[3])
-        coef_df['gene'] = gene
+        coef_df = create_coeff_df(model, allele_df)
         coef_df['bootstrap'] = i
-        coef_df = coef_df[coef_df.beta != 0]
         coef_dfs.append(coef_df)
 
     return pd.concat(coef_dfs)
