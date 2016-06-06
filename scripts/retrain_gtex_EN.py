@@ -21,7 +21,7 @@ def refit_gene(gene):
 
     print('Fitting {}'.format(gene))
     coef_dfs = []
-    main_dir = "/mounts/tscc/projects/mediator_was/results/{}/".format(gene)
+    main_dir = "/mounts/tscc/projects/mediator_was/training/results/{}/".format(gene)
 
     samples = pd.read_table(os.path.join(main_dir, gene+'.samples'), header=None)[0]
 
@@ -75,7 +75,16 @@ def main(gene_list_file, out_file):
     with open(gene_list_file) as IN:
         genes = IN.read().split()
 
-    coef_df = pd.concat([refit_gene(gene) for gene in genes])
+    with open(gene_list_file+'.notfound', 'w') as OUT:
+        coef_dfs = []
+        for gene in genes:
+            try:
+                gene_df = refit_gene(gene)
+                coef_dfs.append(gene_df)
+            except:
+                OUT.write(gene+'\n')
+                continue
+    coef_df = pd.concat(coef_dfs)
     coef_df.to_csv(out_file, sep="\t")
     return
 
