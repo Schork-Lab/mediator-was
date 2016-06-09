@@ -57,7 +57,7 @@ def refit_gene(gene, imputed_loci=imputed_loci):
         OUT.write("Alpha: {} \n".format(full_model.alpha_))
 
     
-    for i in range(5):
+    for i in range(50):
         b_samples = resample(samples, replace=False, n_samples=300)
         model = sklearn.linear_model.ElasticNet(alpha=full_model.alpha_, 
                                                  l1_ratio=full_model.l1_ratio_, 
@@ -67,7 +67,7 @@ def refit_gene(gene, imputed_loci=imputed_loci):
         #                                          max_iter=10000)
         model.fit(design.ix[b_samples], expression.ix[b_samples].values.ravel())
         coef_df = create_coeff_df(model, allele_df)
-        coef_df['bootstrap'] = i
+        coef_df['bootstrap'] = str(i)
         coef_dfs.append(coef_df)
 
     return pd.concat(coef_dfs)
@@ -79,12 +79,12 @@ def main(gene_list_file, out_file):
     with open(gene_list_file+'.notfound', 'w') as OUT:
         coef_dfs = []
         for gene in genes:
-            #try:
+            try:
                 gene_df = refit_gene(gene)
                 coef_dfs.append(gene_df)
-            #except:
+            except:
                 OUT.write(gene+'\n')
-            #    continue
+                continue
     coef_df = pd.concat(coef_dfs)
     coef_df.to_csv(out_file, sep="\t")
     return
