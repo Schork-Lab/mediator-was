@@ -1,25 +1,22 @@
-\documentclass[11pt]{article}
-\usepackage{amsmath}
+\documentclass{article}
 \usepackage{graphicx}
-\usepackage{longtable}
-\usepackage{float}
-\usepackage{fontspec}
-\usepackage{xunicode}
-\usepackage[backend=biber,date=year,doi=false,isbn=false,style=nature,url=false]{biblatex}
-\usepackage[xetex]{hyperref}
-\usepackage{rotating}
-\usepackage{parskip}
-\usepackage[letterpaper]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{bayesnet}
 
 \author{Kunal Bhutani, Abhishek Sarkar, Nicholas J. Schork, Manolis Kellis}
 \date{}
 \title{Modeling prediction error improves power of transcriptome-wide association studies}
-
-\addbibresource{manuscript.bib}
-
+\hypersetup{
+  pdfkeywords={},
+  pdfsubject={},
+  pdfcreator={}}
 \begin{document}
 
 \maketitle
+
 Thousands of loci associated with hundreds of complex diseases have been
 reported in the NHGRI catalog of genome-wide association studies
 \cite{10.1093/nar/gkt1229} (GWASs). However, most genome-wide significant loci
@@ -37,7 +34,9 @@ relevant to transcriptional regulation. The Gene-Tissue Expression Project
 reference data to impute gene expression into GWAS cohorts where expression is
 not measured \cite{10.1038/ng.3367,10.1101/024083}. From imputed expression, we
 can conduct transcriptome-wide association studies (TWASs) to directly find
-genes whose expression is associated with phenotype.
+genes whose expression is associated with phenotype. However, these methods
+are limited to using point estimates of imputed expression, which we show leads
+to incorrect statistical inferences.
 
 Here, we develop a method to explicitly model error in imputed expression and
 propagate this error through TWAS. We show through simulation and application
@@ -46,9 +45,136 @@ phenotype.
 
 \section{Results}
 
+\subsection{Error models}
+
+The fundamental inference task in TWAS is to fit regression models regressing
+phenotype against gene expression. The key insight enabling TWAS has been to
+train models predicting gene expression in reference cohorts and use these to
+impute unobserved gene expression values for GWAS samples. However, current
+methods only use a point estimate of the predicted gene expression in the GWAS
+and ignore the uncertainty in the prediction. This simpler strategy means that
+the predictors for the regression have errors which are not included in the
+model, a situation which is described by measurement error theory.
+
+The impact of measurement error in statistical inference in regression models
+is well-understood\cite{fuller1987}. The errors not explicitly included in the
+model lead to violation of the model assumptions (namely that the residuals are
+uncorrelated with the predictors) and therefore lead to bias in the estimated
+regression coefficients. The theory predicts that the coefficients will be
+biased towards zero, leading to loss of power but not increased Type 1 error
+rate. Here, we investigate the possibility that additional genes could be
+implicated by appropriately accounting for the uncertainty in the imputed gene
+expression in TWAS.
+
+We propose two strategies for accounting for prediction errors in TWAS: (1)
+averaging over the uncertainty of the predicted gene expression over multiple
+imputations (MI), and (2) imputing the true expression based on an estimate of
+the prediction errors before testing for association, an approach known as
+regression calibration (RC). We provide an implementation of these methods in a
+Python package (\href{https://github.com/Schork-Lab/mediator-was}). The key
+advantage of our methods is that they have relatively low additional
+computational burden compared to the naive ordinary least squares estimator
+(OLS), but lead to improved statistical inferences.
+
 \subsection{Simulation study}
 
-\subsection{Application to WTCCC diseases}
+We based our simulation study on prior work\cite{10.1038/ng.3506}. Briefly, we
+used real genotype data to jointly simulate gene expression at both causal and
+non-causal genes in training and test cohorts as well as continuous phenotypes
+in the test cohorts. The key advance of our simulation design is to randomly
+sample cis-regulatory architectures of both causal and non-causal genes to
+thoroughly exercise the different methods.
+
+We imputed genotypes from the 1958 Birth Cohort and National Blood Donors
+cohorts (provided by the Wellcome Trust Case Control Consortium) to XXX
+variants from the Thousand Genomes reference and fixed a random sample of 160
+cis-regulatory windows, defined as 1MB upstream of the gene body as defined in
+the GENCODE annotation vXXX. From these 160 genes, we randomly sampled causal
+eQTLs and generated gene expression using a Gaussian linear model. We fixed the
+proportion of variance explained (PVE) of expression at 0.17, the average
+across all genes as estimated in prior
+work\cite{10.1038/ng.3367,10.1038/ng.3506}, sampled causal effects from a
+standard Gaussian, and added Gaussian noise to achieve the desired PVE. We then
+fixed the PVE by gene expression on phenotype at XXX, and generated a Gaussian
+phenotype in analogous manner. We varied two parameters of the simulation: the
+number of causal eQTLs per gene and the proportion of causal genes.
+
+For each simulation parameter setting, we computed the the area under the
+precision-recall curve (AUPRC) of OLS, MI, and RC (Figure \ref{auprc}). We
+compared the AUPRC rather than the area under the receiver operating
+characteristic (AUROC) curve because the AUROC is not appropriate when the
+proportion of positive and negative examples is not 0.5. We ranked the genes
+according to association statistic computed by each method, then computed the
+cumulative precision and recall (based on the simulated ground truth) for each
+position in the ranked list. We found that both MI and RC outperform OLS.
+
+\begin{figure}[p!]
+    \centering \includegraphics{}
+    \caption{Precision-recall curves for identification of causal genes using
+      MedWAS.}
+    \label{auprc}
+\end{figure}
+
+Interestingly, we did not observe a loss of power to detect associations in our
+simulation study predicted by measurement error theory.
+
+We additionally investigated the distribution of association statistics
+computed by each of the methods using quantile-quantile plots (Figure
+\ref{qqplot}). Although we find OLS and RC to be well-calibrated through the
+entire list of genes, we find association statistics computed using MI are
+deflated, possibly due to XXX.
+
+\begin{figure}[p!]
+    \centering \includegraphics{}
+    \caption{QQ plots of gene-level associations}
+    \label{qqplot}
+\end{figure}
+
+\subsection{Application to real data}
+
+We first compared predicted expression using previously published first-stage
+regression weights and pipelines to our
+predictions\cite{10.1038/ng.3367,10.1038/ng.3506}. We used genotype data in
+seven disease cohorts from the Wellcome Case Control
+Consortium\cite{10.1038/nature05911}: bipolar disorder (BD), coronary artery
+disease (CAD), Crohn's disease (CD), hypertension (HT), rheumatoid arthritis
+(HT), Type 1 Diabetes (T1D), and Type 2 Diabetes (T1D). Surprisingly, we found
+low concordance between the different predictions and even anti-correlation in
+extreme cases (Supplementary Figure \ref{xxx}). There are several possible
+sources of these discrepancies: (1) technical and environmental covariates vary
+across the different studies, (2) quality control filters, normalization
+choices, and strategies to control for genetic and non-genetic confounders vary
+across the studies, and (3) the observations are non-Gaussian and should be
+modeled by a more sophisticated generalized linear model such as Poisson-Gamma
+regression. Our results suggest that the impact of gene expression data
+processing and modeling are severe and highlight a pressing need to more
+carefully study this problem.
+
+We next used the Predixcan weights and method implementation on our imputed
+genotypes. We largely replicated the previously published results...
+
+We then applied MI and RC to the Predixcan weights and found...
+
+We next investigated the impact of gene expression normalization on the
+downstream analysis, we compared published gene expression from the GTEx
+project against independently processed gene expression. We trained first-stage
+regression models on both datasets to carry forward in our analysis, with the
+aim of comparing second-stage association statistics based on the predictions
+of each first-stage model. We filtered genes according to the ratio of variance
+between individuals against the variance within individuals. We chose not to
+use heritability estimated by GREML\cite{10.1016/j.ajhg.2010.11.011} because
+the model failed to converge for XXX genes. For the XXX remaining genes, we fit
+elastic nets using XXX-fold cross-validation to set the penalty weight
+parameter. We then used both sets of models to perform second-stage regression
+and found... Our results suggest that...
+
+We further investigated the genes XXX associated to BD using expression
+microarray data in XXX BD cases and XXX controls \cite{xxx}. We confirmed that
+these genes are differentially expressed in BD cases...
+
+We additionally used the case-control expression data to study the enrichment
+of TWAS associations computed by each method for differentially expressed genes
+identified from the microarray data. We found...
 
 \section{Discussion}
 
