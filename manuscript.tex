@@ -1,21 +1,35 @@
 \documentclass{article}
+\usepackage{parskip}
+\usepackage[letterpaper]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{hyperref}
-\usepackage{tikz}
-\usetikzlibrary{bayesnet}
 
-\author{Kunal Bhutani, Abhishek Sarkar, Nicholas J. Schork, Manolis Kellis}
+\author{Kunal Bhutani$^{1,2,*}$, Abhishek Sarkar$^{3,4,*}$, Nicholas J. Schork$^{1,2}$, Manolis Kellis$^{3,4}$}
 \date{}
 \title{Modeling prediction error improves power of transcriptome-wide association studies}
 \hypersetup{
   pdfkeywords={},
   pdfsubject={},
   pdfcreator={}}
-\begin{document}
 
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\begin{document}
 \maketitle
+
+$^1$ University of California, San Diego, La Jolla, CA
+
+$^2$ J. Craig Venter Institute, La Jolla, CA
+
+$^3$ Massachusetts Institute of Technology, Cambridge, MA
+
+$^4$ Broad Institute of Harvard and MIT, Cambridge, MA
+
+$^*$ Equal contribution
+
+\section{Introduction}
 
 Thousands of loci associated with hundreds of complex diseases have been
 reported in the NHGRI catalog of genome-wide association studies
@@ -45,7 +59,7 @@ phenotype.
 
 \section{Results}
 
-\subsection{Error models}
+\subsection{Error model for TWAS}
 
 The fundamental inference task in TWAS is to fit regression models regressing
 phenotype against gene expression. The key insight enabling TWAS has been to
@@ -71,7 +85,7 @@ averaging over the uncertainty of the predicted gene expression over multiple
 imputations (MI), and (2) imputing the true expression based on an estimate of
 the prediction errors before testing for association, an approach known as
 regression calibration (RC). We provide an implementation of these methods in a
-Python package (\href{https://github.com/Schork-Lab/mediator-was}). The key
+Python package (\url{https://github.com/Schork-Lab/mediator-was}). The key
 advantage of our methods is that they have relatively low additional
 computational burden compared to the naive ordinary least squares estimator
 (OLS), but lead to improved statistical inferences.
@@ -109,10 +123,9 @@ cumulative precision and recall (based on the simulated ground truth) for each
 position in the ranked list. We found that both MI and RC outperform OLS.
 
 \begin{figure}[p!]
-    \centering \includegraphics{}
-    \caption{Precision-recall curves for identification of causal genes using
-      MedWAS.}
-    \label{auprc}
+  \caption{Precision-recall curves for identification of causal genes using
+    MedWAS.}
+  \label{auprc}
 \end{figure}
 
 Interestingly, we did not observe a loss of power to detect associations in our
@@ -125,9 +138,8 @@ entire list of genes, we find association statistics computed using MI are
 deflated, possibly due to XXX.
 
 \begin{figure}[p!]
-    \centering \includegraphics{}
-    \caption{QQ plots of gene-level associations}
-    \label{qqplot}
+  \caption{QQ plots of gene-level associations}
+  \label{qqplot}
 \end{figure}
 
 \subsection{Application to real data}
@@ -177,6 +189,8 @@ of TWAS associations computed by each method for differentially expressed genes
 identified from the microarray data. We found...
 
 \section{Discussion}
+
+%% TODO: fill in
 
 \section{Methods}
 
