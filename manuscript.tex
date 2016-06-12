@@ -180,15 +180,18 @@ identified from the microarray data. We found...
 
 \section{Methods}
 
-\subsection{Additive measurement error model}
+\subsection{Error model for TWAS}
 
-We assume a continuous phenotype \(y_i\) on n individuals and regress phenotype
-on predicted expression \(w_i\) for each gene. For ease of exposition, we first
-describe a model with no additional covariates. The results readily apply to
-generalized linear models, so we use logistic regression for binary phenotypes.
+We assume a continuous phenotype $y_i$ with zero mean on $n$ individuals and
+regress phenotype on predicted expression $w_i$ for each gene. To handle binary
+phenotypes, we estimate the latent liabilities using
+LEAP\cite{10.1038/nmeth.3285} and regress expression against individual
+liabilities. For ease of exposition, we describe a model with no additional
+covariates; these can be included as additional terms in the model with no
+modification to the algorithms.
 
 \begin{align*}
-  y_i &= \beta_0 + \beta_1 w_i + \epsilon_i\\
+  y_i &= \alpha w_i + \epsilon_i\\
   \epsilon_i &= \text{error in equation}\\
   y_i &= \text{phenotype of individual $i$}\\
   w_i &= \text{predicted expression of individual $i$}\\
@@ -198,105 +201,106 @@ We assume additive measurement error on the predicted expression value:
 
 \begin{align*}
   w_i &= x_i + u_i\\
-  x_i &= \text{true expression (latent) of individual $i$}\\
+  x_i &= \text{true (latent) expression of individual $i$}\\
   u_i &= \text{error in predicted expression of individual $i$}\\
 \end{align*}
 
-We assume measurement errors have mean 0 and finite variance:
+We assume measurement errors have zero mean and finite variance:
 
 \begin{align*}
   E[u_i] &= 0\\
   V[u_i] &= \sigma_{ui}^2\\
 \end{align*}
 
-Under these assumptions, the naive estimators \(\hat\beta_0\) and \(\hat\beta_1\)
-are biased because the error in equation becomes correlated with the predicted
-expression:
+Under the assumptions above, the naive estimator $\hat\alpha$ is biased because
+the error in equation becomes correlated with the predicted expression:
 
 \begin{equation}
-  y_i = \beta_0 + \beta_1 x_i + (\epsilon_i - \beta_1 u_i)
+  y_i = \mu + \alpha x_i + (\epsilon_i - \alpha u_i)
 \end{equation}
 
-Specifically, \(\hat\beta_1\) is biased towards zero by a multiplicative factor,
+Specifically, $\hat\alpha$ is biased towards zero by a multiplicative factor,
 which leads to loss of power to detect significant effects on phenotype:
 
 \begin{align*}
-  \hat\beta_1 &= \frac{\sigma_x^2}{\sigma_x^2 + \sigma_u^2} \beta_1 = \kappa \beta_1\\
+  \hat\alpha &= \frac{\sigma_x^2}{\sigma_x^2 + \sigma_u^2}\alpha\\
   \sigma_x^2 &= \text{variance of true expression}\\
   \sigma_u^2 &= \text{variance of errors in predicted expression}\\
 \end{align*}
 
-Given \(\hat\sigma_{ui}^2\), we can correct the naive estimates using regression
-calibration. We regress \(y_i\) on \(\hat x_i = \bar w - \hat\kappa (w_i - \bar
-w)\), yielding estimates \(\hat\beta^*\). We describe how to estimate
-\(\hat\sigma_{ui}^2\) below.
+%% TODO: formulas for SE
+We propose two methods to correct this bias: multiple imputation and regression
+calibration. In multiple imputation, we impute gene expression $k$ times and
+take the average as the value to carry forward in the second-stage regression.
+We estimate the standard error of the second-stage regression using the law of
+total variance.
 
-To estimate an association \(p\)-value, we perform a Wald test:
+In regression calibration, we impute the true expression value and regress
+phenotype against this estimated true expression. Given $\hat\sigma_{ui}^2$, we
+regress $y_i$ on $\hat x_i = \bar w - \hat\kappa (w_i - \bar w)$, yielding
+estimate $\hat\alpha^*$.
+
+Assuming access to only one training cohort, we estimate $\hat\sigma_{ui}^2$ by
+fitting $k$ bootstrapped models. We fit $k$ first-stage regression models
+regressing observed gene expression $E$ against genotype $G$ (elastic net with
+cross-validated penalty parameters):
 
 \begin{align*}
-  \theta &= \left(\frac{\hat\beta_1^*}{SE(\hat\beta_1^*)}\right)^2 \sim \chi^2(\theta; 1)\\
+    \hat\beta^{(k)} = \argmin_{\beta^{(k)}} ||E - G\beta^{(k)}||^2 +
+    \lambda_1||\beta^{(k)}||_1 + \lambda_2||\beta^{(k)}||_2\\
+\end{align*}
+
+We estimate $w_i$ and $\hat\sigma_{ui}^2$ as:
+
+\begin{align*}
+  \hat w_i^{(k)} &= G \hat{\beta}^{(k)}\\
+  \bar w_i &= \frac{1}{K} \sum_{k}{w_i^{(k)}}\\
+  \hat\sigma_{ui}^2 &= \frac{1}{K - 1} \sum_j (w_i^{(k)} - \bar w_i)^2\\
+\end{align*}
+
+To estimate the association p-value, we perform a Wald test. We estimate
+$\Sigma_\alpha$, the covariance of $\hat\alpha^*$ using a robust
+estimator\cite{fuller1987}:
+
+\begin{align*}
+  \Sigma_\alpha &= M_{XX}^{-1} H M_{XX}^{-1}\\
+  M_{XX} &= \frac{W' W}{n} - \hat\Sigma_u\\
+  W &= \text{$n \times p$ design matrix (including intercept)}\\
+  \hat\Sigma_u &= \text{covariance of measurement errors}\\
+  H &= \frac{1}{n(n - p)} \sum_i \Delta_i \Delta_i'\\
+  r_i &= y_i - W_i \hat\alpha\\
+  \Delta_i &= W_i' r_i + \Sigma_{ui} \hat\alpha\\
+  \theta &= \left(\frac{\hat\alpha^*}{SE(\hat\alpha^*)}\right)^2 \sim \chi^2(\theta; 1)\\
   H_0&: \theta = 0\\
   H_1&: \theta > 0\\
 \end{align*}
 
-In order to estimate the covariance of \(\hat\beta^*\), we use the robust
-estimator of Fuller (1987):
+\subsection{Simulation study}
 
-\begin{align*}
-  M_{XX} &= \frac{W' W}{n} - \hat\Sigma_u\\
-  W &= \text{$n \times p$ design matrix (including intercept)}\\
-  \hat\Sigma_u &= \text{covariance of measurement errors}\\
-  r_i &= y_i - W_i \hat\beta\\
-  \Delta_i &= W_i' r_i + \Sigma_ui \hat\beta\\
-  H &= \frac{1}{n(n - p)} \sum_i \Delta_i \Delta_i'\\
-  \Sigma_\beta &= M_{XX}^{-1} H M_{XX}^{-1}\\
-\end{align*}
+%% TODO: Controls only simulation?
+We used XXX samples from the XXX cohort, genotyped by the Wellcome Trust Case
+Control Consortium. We selected 160 genes with cis-heritable gene (likelihood
+ratio test, GREML) expression in all of three studies as previously
+reported\cite{10.1038/ng.3506}: Metabolic Syndrome in Men (METSIM), Netherlands
+Twin Registry (NTR), and Young Finns Study (YFS). We held out 500 individuals
+as the training cohort and used the rest as the test cohort.
 
-\subsection{Estimating prediction errors}
+For each gene, we sample the causal fraction of eQTLs from $(.01, .05, .1)$.
+For each cis-regulatory window, we sample causal effects $\beta$ from a
+standard Gaussian. We compute the genetic value of each individual $X = G
+\beta$ and add i.i.d.\ Gaussian noise to achieve proportion of variance
+explained (PVE) equal to 0.17 in expectation by sampling from $\mathcal{N}(0,
+\mathbb{V}[G \beta] * (1 / .17 - 1))$, where $\mathbb{V}[G \beta]$ is the
+sample variance of the genetic values.
 
-Given pre-computed weights for linear models of cis-heritable gene
-expression trained in \(m\) different cohorts, we estimate \(\hat\sigma_{ui}^2\) as:
-
-\begin{align*}
-  \bar y_i &= \frac{1}{m} \sum_j y_i^{(j)}\\
-  \hat\sigma_{ui}^2 &= \frac{1}{m - 1} \sum_j (y_i^{(j)} - \bar y_i)^2\\
-\end{align*}
-
-We have m=4 replicates of predicted expression (METSIM, YFS, NTR, GTEx).
-
-Given one training cohort, we estimate \(\hat\sigma_{ui}^2\) using standard
-errors from the linear model (\textbf{this is hard}).
-
-\subsection{Simulation}
-
-100 causal genes
-
-\(p\) causal eQTLs per gene
-
-Draw unlinked genotypes
-
-PVE = 0.17 per gene
-
-Generate phenotype as linear combination of total expression of causal genes
-
-PVE = 0.2
-
-Simulate four training cohorts with n = 1000. Train linear regression (since we
-only have causal variants).
-
-Estimate power by fixing n, p and simulating 10 test cohorts. Compute GWAS
-p-value, eGWAS p-value, naive TWAS p-value, corrected TWAS p-value
-
-Estimate Type I error by simulating two null phenotypes:
-
-\begin{enumerate}
-\item No link between eQTLs and phenotype: Gaussian noise
-\item eQTLs are causal, but expression does not mediate phenotype (independent
-effect size)
-\end{enumerate}
+For each phenotype, we sample the number of causal genes from $(20, 50, 100)$.
+We sample causal gene effects $\alpha$ from a standard Gaussian and add
+i.i.d\ Gaussian noise to achieve $\text{PVE} = 0.2$ using the procedure
+described above. We compute the genetic value of each individual as $y = X
+\alpha$ and add Gaussian noise as described above.
 
 \subsection{Data processing}
 
-\clearpage
-\printbibliography
+%% TODO: fill in
+
 \end{document}
