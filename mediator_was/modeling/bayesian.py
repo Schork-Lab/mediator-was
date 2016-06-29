@@ -20,7 +20,8 @@ import scipy.stats as stats
 import scipy.misc as misc
 
 
-Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace', 'included_snps', 'type'])
+Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace', 'type', 'included_snps'])
+Model.__new__.__defaults__ = (None,) * len(Model._fields)
 
 def tinvlogit(x):
     return t.exp(x) / (1 + t.exp(x))
@@ -54,7 +55,6 @@ def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
     beta_exp_trace_reshaped = np.array([beta_exp_trace[:,0][:, idx]
                                           for idx in range(n_snps)])
     beta_exp_mean = beta_exp_trace_reshaped.mean(axis=1)
-    included_snps = range(n_snps)
     expression = np.dot(beta_exp_mean, genotypes.T)
     with pm.Model() as phenotype_model:
         alpha = pm.Normal('alpha', 0, 1)
@@ -69,7 +69,7 @@ def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
         phenotype_trace = pm.sample(15000, start=start, step=pm.NUTS(),
                                     progressbar=True)
 
-    return Model(phenotype_model, phenotype_trace[-10000:], beta_exp_trace, included_snps, 'pm')
+    return Model(phenotype_model, phenotype_trace[-10000:], beta_exp_trace, 'pm')
 
 
 def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
@@ -82,7 +82,6 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
                                           for idx in range(n_snps)])
     beta_exp_mean = beta_exp_trace_reshaped.mean(axis=1)
     beta_exp_sd = beta_exp_trace_reshaped.std(axis=1, ddof=1)
-    included_snps = range(n_snps)
     with pm.Model() as phenotype_model:
         beta_exp = pm.Normal('beta_exp', 
                              mu=beta_exp_mean, 
@@ -106,7 +105,7 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
         #                             progressbar=True)
         phenotype_trace = pm.sample(50000, step=pm.NUTS(), start=start,
                                             progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], included_snps, 'prior')
+    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], 'prior')
 
 
 def full_model(exp_genotypes, expression,
@@ -116,7 +115,6 @@ def full_model(exp_genotypes, expression,
     Fit phenotype and expression model at the same time.
     '''
     n_snps = exp_genotypes.shape[1]
-    included_snps = range(n_snps)
     with pm.Model() as phenotype_model:
 
         # Expression
@@ -148,14 +146,13 @@ def full_model(exp_genotypes, expression,
         step2 = pm.NUTS([alpha, phenotype_sigma])
         phenotype_trace = pm.sample(150000, step=pm.Metropolis(), start=start, progressbar=True)
         # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], included_snps, 'full')
+    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
 
 def two_stage_model(coefs, genotypes, phenotypes):
     p_inclusion = (coefs != 0).sum(axis=0)/coefs.shape[0]
     p_beta = coefs.mean(axis=0)
     p_std = coefs.std(axis=0, ddof=1)
     n_snps = p_beta.shape[0]
-    included_snps = range(n_snps)
     with pm.Model() as phenotype_model:
         inclusion = pm.Bernoulli('inclusion', p=p_inclusion, shape=(1, n_snps))
         beta_exp = pm.Normal('beta_exp', mu=p_beta.ravel(), sd=p_std.ravel(), shape=(1, n_snps))
@@ -165,7 +162,7 @@ def two_stage_model(coefs, genotypes, phenotypes):
         phen = pm.Normal('phen', mu=alpha*mu, sd=sigma, observed=phenotypes)
         start = pm.find_MAP()
         phenotype_trace = pm.sample(20000, start=start, progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-5000:], phenotype_trace['beta_exp'][:-5000:], included_snps, 'two_stage')
+    return Model(phenotype_model, phenotype_trace[-5000:], phenotype_trace['beta_exp'][:-5000:], 'two_stage')
 
 
 def two_stage_variational_model(coefs, genotypes, phenotypes, min_inclusion_p=0.5):
@@ -184,7 +181,7 @@ def two_stage_variational_model(coefs, genotypes, phenotypes, min_inclusion_p=0.
         #start = pm.find_MAP()
         v_params = pm.variational.advi(n=50000)
         trace = pm.variational.sample_vp(v_params, draws=5000)
-    model = Model(phenotype_model, trace, trace['beta_exp'], included_snps, 'two_stage_variational')
+    model = Model(phenotype_model, trace, trace['beta_exp'], 'two_stage_variational', included_snps)
     return model
 
 def compute_ppc(model, samples=500, size=1):
@@ -238,7 +235,11 @@ def compute_mse_oos(genotypes, phenotypes, model):
     '''
     Compute out of sample mse
     '''
-    exp_hat, phen_hat = compute_ppc_oos(genotypes[:,model.included_snps],
+    included_snps = model.included_snps
+    if included_snps is None:
+        included_snps = numpy.arange(genotypes.shape[1])
+    
+    exp_hat, phen_hat = compute_ppc_oos(genotypes[:, included_snps],
                                         model)
     squared_error = (phenotypes - phen_hat)**2
     return np.mean(squared_error)
