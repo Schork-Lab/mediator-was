@@ -6,14 +6,9 @@ Author: Kunal Bhutani   <kunalbhutani@gmail.com>
 """
 from __future__ import print_function
 
-import collections
-import contextlib
-import operator
 import pickle
-import sys
 import time
 import glob
-import os
 
 import numpy
 import numpy.random as R
@@ -25,11 +20,11 @@ import pymc3 as pm
 
 
 from mediator_was.modeling.association import *
-from mediator_was.processing.helpers import load_hapgen, load_plink
+from mediator_was.processing.helpers import load_plink
 import mediator_was.modeling.bayesian as bay
 
-
 current_milli_time = lambda: int(round(time.time() * 1000))
+
 
 def _add_noise(genetic_value, pve):
     """Add Gaussian noise to genetic values to achieve desired PVE.
@@ -41,12 +36,13 @@ def _add_noise(genetic_value, pve):
     sigma = numpy.sqrt(numpy.var(genetic_value) * (1 / pve - 1))
     return genetic_value + R.normal(size=genetic_value.shape, scale=sigma)
 
+
 def _fit_bootstrapped_EN(bootstrap_params, genotypes, expression):
     '''
     Fit bootstrapped ElasticNetCV
 
     Args:
-        bootstrap_params: tuple(number of individuals per boostrap, number of bootstraps)
+        bootstrap_params: tuple(number of individuals per bootstrap, number of bootstraps)
         genotypes
         expression
 
@@ -55,11 +51,18 @@ def _fit_bootstrapped_EN(bootstrap_params, genotypes, expression):
     '''
 
     b_models = []
-    model=sklearn.linear_model.ElasticNetCV
+    model = sklearn.linear_model.ElasticNetCV
+    
+    # Fit entire model to get estimates of /alpha and /lambda
+    l1_ratio_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+    full_model = model(l1_ratio=l1_ratio_range, max_iter=10000)
+    full_model.fit(genotypes, expression)
+
+    model = sklearn.linear_model.ElasticNet
     for i in range(bootstrap_params[1]):
         b_genotypes, b_expression = sklearn.utils.resample(genotypes, expression, 
                                                            n_samples=bootstrap_params[0])
-        b_model = model(max_iter=10000, n_jobs=12).fit(b_genotypes, b_expression)
+        b_model = model(max_iter=10000, alpha=full_model.alpha_, l1_ratio=full_model.l1_ratio_).fit(b_genotypes, b_expression)
         b_models.append(b_model)
     return b_models
 
@@ -98,7 +101,8 @@ class Gene():
         # Set parameters
         R.seed(seed)
         self.name = name
-        self.id = '_'.join(map(str, [name, p_causal_eqtls, pve, seed, current_milli_time()]))
+        self.id = '_'.join(map(str, [name, p_causal_eqtls,
+         pve, seed, current_milli_time()]))
         self.plink_file = plink_file
         self.n_train = n_train
         self.p_causal_eqtls = p_causal_eqtls
@@ -117,7 +121,7 @@ class Gene():
         Load gene haplotypes and generate causal snps
         '''
         if haps is None:
-            self.haps = load_plink(self.plink_file)
+            self.haps = load_plink(self.plink_file) 
         else:
             self.haps = haps
         n_snps = len(self.haps)
@@ -125,7 +129,7 @@ class Gene():
         if self.p_causal_eqtls == 0:
             n_causal_eqtls = 1
         else:
-            n_causal_eqtls = numpy.round(n_snps*self.p_causal_eqtls)
+            n_causal_eqtls = int(numpy.round(n_snps*self.p_causal_eqtls))
         self.causal_loci = self._sample_causal_loci(n_causal_eqtls)
         self.beta = numpy.zeros(n_snps)
         self.beta[self.causal_loci] = R.normal(size=n_causal_eqtls)
@@ -295,8 +299,8 @@ class Association(object):
 
 
         self._test_frequentist(gene)
-        # self._fit_bayesian(gene)
-        # self._test_bayesian(gene)
+        self._fit_bayesian(gene, pm=False, prior=False, full=False, ts=False)
+        self._test_bayesian(gene)
         
         return
 
@@ -357,35 +361,62 @@ class Association(object):
         self.f_association = association
         return
 
-    def _fit_bayesian(self, gene, n_steps=10000):
-        exp_model = gene.bayesian_model
-        exp_trace = exp_model.beta_exp_trace[-n_steps:]
-        pm_model = bay.phenotype_model_with_pm(self.genotype,
-                                               self.phenotype,
-                                               exp_trace)
-        prior_model = bay.phenotype_model_with_prior(self.genotype,
-                                                     self.phenotype,
-                                                     exp_trace)
-        full_model = bay.full_model(gene.train_genotypes,
-                                    gene.train_expression,
-                                    self.genotype,
-                                    self.phenotype)
-        self.bayesian_models = [pm_model, prior_model, full_model]
+    def _fit_bayesian(self, gene, n_steps=10000, 
+                      pm=True, prior=True, full=True,
+                      ts=True, ts_variational=True):
+
+        models = []
+        if pm or prior:
+            exp_model = gene.bayesian_model
+            exp_trace = exp_model.beta_exp_trace[-n_steps:]
+        if pm:
+            pm_model = bay.phenotype_model_with_pm(self.genotype,
+                                                   self.phenotype,
+                                                   exp_trace)
+            models.append(pm_model)
+        if prior:
+            prior_model = bay.phenotype_model_with_prior(self.genotype,
+                                                         self.phenotype,
+                                                         exp_trace)
+            models.append(prior_model)
+        if full:
+            full_model = bay.full_model(gene.train_genotypes,
+                                        gene.train_expression,
+                                        self.genotype,
+                                        self.phenotype)
+            models.append(full_model)
+        if ts:
+            coefs = pd.DataFrame([model.coef_ for model in gene.bootstrap_models])
+            ts_model = bay.two_stage_model(coefs,
+                                           self.genotype,
+                                           self.phenotype)
+            models.append(ts_model)
+        if ts_variational:
+            coefs = pd.DataFrame([model.coef_ for model in gene.bootstrap_models])
+            ts_variational_model = bay.two_stage_variational_model(coefs,
+                                                                   self.genotype,
+                                                                   self.phenotype)
+            models.append(ts_variational_model)
+
+        self.bayesian_models = models
         return
 
-    def _test_bayesian(self, gene):
-        mse = dict((model.type,
-                    bay.compute_mse_oos(self.oos_genotype,
-                                        self.oos_phenotype,
-                                        model))
-                   for model in self.bayesian_models)
-        self.b_mse = mse
+    def _test_bayesian(self, gene, mse=True, bf=False):
+        if mse:
+            mse = dict((model.type,
+                        bay.compute_mse_oos(self.oos_genotype,
+                                            self.oos_phenotype,
+                                            model))
+                       for model in self.bayesian_models)
+            self.b_mse = mse
 
-        bf = dict(('BF-'+model.type,
-                   bay.bayes_factor(model, self.genotype, self.phenotype,
-                                    gene.train_genotypes, gene.train_expression))
-                    for model in self.bayesian_models)
-        self.b_bf = bf
+
+        if bf:
+            bf = dict(('BF-'+model.type,
+                       bay.bayes_factor(model, self.genotype, self.phenotype,
+                                        gene.train_genotypes, gene.train_expression))
+                        for model in self.bayesian_models)
+            self.b_bf = bf
 
         return
 
@@ -414,7 +445,7 @@ class Power():
     def __init__(self, study=None, associations=None, association_dir=None):
         if association_dir:
             self.association_dir = association_dir
-            study_file = glob.glob(association_dir+'*study.pkl')[0]
+            study_file = glob.glob(association_dir+'id be *study.pkl')[0]
             with pm.Model():
                 #study_file = os.path.join(association_dir, "study.pkl")
                 self.study = pickle.load(open(study_file, 'rb'))
@@ -427,14 +458,14 @@ class Power():
 
     def precision_recall_df(self):   
         precision_recall_df = pd.concat([self.f_estimator_df[['estimator', 'precision', 'recall']],
-                                         # self.b_estimator_df[['estimator', 'precision', 'recall']],
+                                         self.b_estimator_df[['estimator', 'precision', 'recall']],
                                          # self.bf_estimator_df[['estimator', 'precision', 'recall']]
                                          ])
         return precision_recall_df
 
     def roc_df(self):   
         roc_df = pd.concat([self.f_estimator_df[['estimator', 'fpr', 'recall']],
-                                         # self.b_estimator_df[['estimator', 'fpr', 'recall']],
+                            self.b_estimator_df[['estimator', 'fpr', 'recall']],
                                          # self.bf_estimator_df[['estimator', 'fpr', 'recall']]
                             ])
         return roc_df
@@ -472,8 +503,8 @@ class Power():
         else:
             self.f_association_df = pd.concat([association.create_frequentist_df()
                                               for association in associations])
-            # self.b_association_df = pd.concat([association.create_mse_df()
-            #                                   for association in associations])
+            self.b_association_df = pd.concat([association.create_mse_df()
+                                              for association in associations])
             # self.bf_association_df = pd.concat([association.create_bf_df()
             #                                    for association in associations])
 
@@ -483,12 +514,12 @@ class Power():
         self.f_estimator_df = pd.concat(map(f_estimator,
                                             self.f_association_df.index.levels[0]))
 
-        # b_sort = lambda x: x.sort_values('mse')
-        # b_estimator = lambda x: self._calculate_estimator_df(self.b_association_df, 
-        #                                                       x,
-        #                                                       b_sort)
-        # self.b_estimator_df = pd.concat(map(b_estimator,
-        #                                     self.b_association_df.index.levels[0]))
+        b_sort = lambda x: x.sort_values('mse')
+        b_estimator = lambda x: self._calculate_estimator_df(self.b_association_df, 
+                                                              x,
+                                                              b_sort)
+        self.b_estimator_df = pd.concat(map(b_estimator,
+                                            self.b_association_df.index.levels[0]))
 
 
         # bf_sort = lambda x: x.sort_values('psuedo_bf', ascending=False)

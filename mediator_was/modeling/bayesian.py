@@ -20,7 +20,7 @@ import scipy.stats as stats
 import scipy.misc as misc
 
 
-Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace', 'type'])
+Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace', 'included_snps', 'type'])
 
 def tinvlogit(x):
     return t.exp(x) / (1 + t.exp(x))
@@ -54,20 +54,22 @@ def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
     beta_exp_trace_reshaped = np.array([beta_exp_trace[:,0][:, idx]
                                           for idx in range(n_snps)])
     beta_exp_mean = beta_exp_trace_reshaped.mean(axis=1)
+    included_snps = range(n_snps)
     expression = np.dot(beta_exp_mean, genotypes.T)
     with pm.Model() as phenotype_model:
-        beta_phen = pm.Normal('beta_phen', 0, 1)
+        alpha = pm.Normal('alpha', 0, 1)
         
         sigma = pm.HalfCauchy('sigma', beta=cauchy_beta)
         if not logistic:
-            phen = pm.Normal('phen', mu=beta_phen*expression, sd=sigma, observed=phenotypes)
+            phen = pm.Normal('phen', mu=alpha*expression, sd=sigma, observed=phenotypes)
         else:
-            p = tinvlogit(beta_phen*expression)
+            p = tinvlogit(alpha*expression)
             phen = pm.Bernoulli('phen', p=p, observed=phenotypes)
         start = pm.find_MAP()
         phenotype_trace = pm.sample(15000, start=start, step=pm.NUTS(),
                                     progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-10000:], beta_exp_trace, 'pm')
+
+    return Model(phenotype_model, phenotype_trace[-10000:], beta_exp_trace, included_snps, 'pm')
 
 
 def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
@@ -80,30 +82,31 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
                                           for idx in range(n_snps)])
     beta_exp_mean = beta_exp_trace_reshaped.mean(axis=1)
     beta_exp_sd = beta_exp_trace_reshaped.std(axis=1, ddof=1)
+    included_snps = range(n_snps)
     with pm.Model() as phenotype_model:
         beta_exp = pm.Normal('beta_exp', 
                              mu=beta_exp_mean, 
                              sd=beta_exp_sd, 
                              shape=(1, n_snps))
-        beta_phen = pm.Normal('beta_phen', 0, 1)
+        alpha = pm.Normal('alpha', 0, 1)
         exp = pm.dot(beta_exp, genotypes.T)
         sigma = pm.HalfCauchy('sigma', beta=cauchy_beta)
         if not logistic:
             phen = pm.Normal('phen', 
-                             mu=beta_phen*exp, 
+                             mu=alpha*exp, 
                              sd=sigma, 
                              observed=phenotypes)
         else:
-            p = tinvlogit(beta_phen*exp)
+            p = tinvlogit(alpha*exp)
             phen = pm.Bernoulli('phen', p=p, observed=phenotypes)
         start = pm.find_MAP()
         # step1 = pm.NUTS([beta_exp])
-        # step2 = pm.Metropolis([beta_phen, sigma])
+        # step2 = pm.Metropolis([alpha, sigma])
         # phenotype_trace = pm.sample(20000, step=[step1, step2], start=start,
         #                             progressbar=True)
         phenotype_trace = pm.sample(50000, step=pm.NUTS(), start=start,
                                             progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], 'prior')
+    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], included_snps, 'prior')
 
 
 def full_model(exp_genotypes, expression,
@@ -113,6 +116,7 @@ def full_model(exp_genotypes, expression,
     Fit phenotype and expression model at the same time.
     '''
     n_snps = exp_genotypes.shape[1]
+    included_snps = range(n_snps)
     with pm.Model() as phenotype_model:
 
         # Expression
@@ -124,10 +128,10 @@ def full_model(exp_genotypes, expression,
                         sd=expression_sigma, 
                         observed=expression)
         # Phenotype
-        beta_phen = pm.Normal('beta_phen', 0, 1)
+        alpha = pm.Normal('alpha', 0, 1)
         phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes.T)
         phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=10)
-        phenotype_mu = beta_phen * phenotype_expression_mu
+        phenotype_mu = alpha * phenotype_expression_mu
         if not logistic:
             phen = pm.Normal('phen', 
                              mu=phenotype_mu, 
@@ -141,11 +145,47 @@ def full_model(exp_genotypes, expression,
         # Fit
         start = pm.find_MAP()
         step1 = pm.Metropolis([beta_exp, expression_sigma])
-        step2 = pm.NUTS([beta_phen, phenotype_sigma])
+        step2 = pm.NUTS([alpha, phenotype_sigma])
         phenotype_trace = pm.sample(150000, step=pm.Metropolis(), start=start, progressbar=True)
         # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
+    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], included_snps, 'full')
 
+def two_stage_model(coefs, genotypes, phenotypes):
+    p_inclusion = (coefs != 0).sum(axis=0)/coefs.shape[0]
+    p_beta = coefs.mean(axis=0)
+    p_std = coefs.std(axis=0, ddof=1)
+    n_snps = p_beta.shape[0]
+    included_snps = range(n_snps)
+    with pm.Model() as phenotype_model:
+        inclusion = pm.Bernoulli('inclusion', p=p_inclusion, shape=(1, n_snps))
+        beta_exp = pm.Normal('beta_exp', mu=p_beta.ravel(), sd=p_std.ravel(), shape=(1, n_snps))
+        alpha = pm.Uniform('alpha', -1e3, 1e3)
+        mu = pm.dot(beta_exp*inclusion, genotypes.T)
+        sigma = pm.HalfCauchy('sigma', beta=10)
+        phen = pm.Normal('phen', mu=alpha*mu, sd=sigma, observed=phenotypes)
+        start = pm.find_MAP()
+        phenotype_trace = pm.sample(20000, start=start, progressbar=True)
+    return Model(phenotype_model, phenotype_trace[-5000:], phenotype_trace['beta_exp'][:-5000:], included_snps, 'two_stage')
+
+
+def two_stage_variational_model(coefs, genotypes, phenotypes, min_inclusion_p=0.5):
+    p_inclusion = (coefs != 0).sum(axis=0)/coefs.shape[0]
+    included_snps = np.where(p_inclusion > min_inclusion_p)
+    p_beta = coefs.T.ix[included_snps].mean(axis=1)
+    p_std = coefs.T.ix[included_snps].std(axis=1, ddof=1)
+    n_snps = len(included_snps[0])
+    with pm.Model() as phenotype_model:
+        #inclusion = pm.Bernoulli('inclusion', p=p_inclusion, shape=(1, n_snps))
+        beta_exp = pm.Normal('beta_exp', mu=p_beta.ravel(), sd=p_std.ravel(), shape=(1, n_snps))
+        alpha = pm.Uniform('alpha', -1e1, 1e1)
+        mu = pm.dot(beta_exp, genotypes.T[included_snps])
+        sigma = pm.HalfCauchy('sigma', beta=10)
+        phen = pm.Normal('phen', mu=alpha*mu, sd=sigma, observed=phenotypes)
+        #start = pm.find_MAP()
+        v_params = pm.variational.advi(n=50000)
+        trace = pm.variational.sample_vp(v_params, draws=5000)
+    model = Model(phenotype_model, trace, trace['beta_exp'], included_snps, 'two_stage_variational')
+    return model
 
 def compute_ppc(model, samples=500, size=1):
     '''
@@ -180,18 +220,17 @@ def compute_ppc_oos(genotypes, model, num_steps=10000,):
         exp = np.dot(genotypes,
                      model.beta_exp_trace[-num_steps:].mean(axis=0).T)
 
-    elif model.type == 'prior':
-        exp = np.dot(genotypes,
-                     model.trace[-num_steps:]['beta_exp'].mean(axis=0).T)
-
-    elif model.type == 'full':
-        exp = np.dot(genotypes, 
-                     model.trace[-num_steps:]['beta_exp'].mean(axis=0).T)
+    elif model.type == 'prior' \
+        or model.type == 'full' \
+        or model.type == 'two_stage' \
+        or model.type == 'two_stage_variational':
+            exp = np.dot(genotypes,
+                         model.trace[-num_steps:]['beta_exp'].mean(axis=0).T)
 
     else:
         raise ValueError('Unrecognized model type for ppc calculation')
 
-    phen = (exp*model.trace[-num_steps:]['beta_phen'].mean()).ravel()
+    phen = (exp*model.trace[-num_steps:]['alpha'].mean()).ravel()
     return exp, phen
 
 
@@ -199,7 +238,8 @@ def compute_mse_oos(genotypes, phenotypes, model):
     '''
     Compute out of sample mse
     '''
-    exp_hat, phen_hat = compute_ppc_oos(genotypes, model)
+    exp_hat, phen_hat = compute_ppc_oos(genotypes[:,model.included_snps],
+                                        model)
     squared_error = (phenotypes - phen_hat)**2
     return np.mean(squared_error)
 
@@ -218,9 +258,9 @@ def ppc_df(phenotype, models, oos=True):
 def phen(model, n_steps=5000, pvalue=False):
     summary = pm.df_summary(model.trace[-n_steps:])
     if not pvalue:
-        return summary.ix['beta_phen']['mean'], summary.ix['beta_phen']['sd']
+        return summary.ix['alpha']['mean'], summary.ix['alpha']['sd']
     if pvalue:
-        return summary.ix['beta_phen']['mean'], summary.ix['beta_phen']['sd'], 0
+        return summary.ix['alpha']['mean'], summary.ix['alpha']['sd'], 0
 
 
 def bayes_factor(model, genotypes, phenotype, 
@@ -261,8 +301,8 @@ def _bf_pm():
                                   beta_exp_mean=None, beta_exp_sd=None,
                                   train_genotypes=None, train_expression=None):
         log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))
-        log_p_beta = np.log(stats.norm.pdf(step['beta_phen'], 0, 1))
-        y_hat = step['beta_phen']*expression
+        log_p_beta = np.log(stats.norm.pdf(step['alpha'], 0, 1))
+        y_hat = step['alpha']*expression
         log_p_y = np.log(stats.norm.pdf(phenotype, y_hat, step['sigma'])).sum()
         return log_p_sigma + log_p_beta + log_p_y
 
@@ -284,9 +324,9 @@ def _bf_prior():
                                   train_genotypes=None, train_expression=None):
         log_p_beta_exp = np.log(stats.norm.pdf(step['beta_exp'], beta_exp_mean, beta_exp_sd)).sum()
         log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))
-        log_p_beta = np.log(stats.norm.pdf(step['beta_phen'], 0, 1))
+        log_p_beta = np.log(stats.norm.pdf(step['alpha'], 0, 1))
         expression = np.dot(step['beta_exp'], genotypes.T)
-        y_hat = step['beta_phen']*expression
+        y_hat = step['alpha']*expression
         log_p_y = np.log(stats.norm.pdf(phenotype, y_hat, step['sigma'])).sum()
         return log_p_sigma + log_p_beta_exp + log_p_y + log_p_beta 
 
@@ -296,7 +336,7 @@ def _bf_prior():
                                     train_genotypes=None, train_expression=None):
         log_p_beta_exp = np.log(stats.norm.pdf(step['beta_exp'], beta_exp_mean, beta_exp_sd)).sum()
         log_p_sigma = np.log(stats.halfcauchy.pdf(step['sigma'], 0, 10))
-        log_p_beta = np.log(stats.norm.pdf(step['beta_phen'], 0, 1))
+        log_p_beta = np.log(stats.norm.pdf(step['alpha'], 0, 1))
         log_p_y = np.log(stats.norm.pdf(phenotype, 0, step['sigma'])).sum()
         return log_p_sigma + log_p_y + log_p_beta_exp
 
@@ -311,13 +351,13 @@ def _bf_full():
         log_p_beta_exp = np.log(stats.laplace.pdf(step['beta_exp'], 0, 1)).sum()
         log_p_sigma_exp = np.log(stats.halfcauchy.pdf(step['expression_sigma'], 0, 10))
         log_p_sigma_phen = np.log(stats.halfcauchy.pdf(step['phenotype_sigma'], 0, 10))
-        log_p_beta = np.log(stats.norm.pdf(step['beta_phen'], 0, 1))
+        log_p_beta = np.log(stats.norm.pdf(step['alpha'], 0, 1))
         
         expression_hat = np.dot(step['beta_exp'], train_genotypes.T)
         log_p_expression = np.log(stats.norm.pdf(train_expression, expression_hat, step['expression_sigma'])).sum()
         
         phen_expression = np.dot(step['beta_exp'], genotypes.T)
-        phen_hat = step['beta_phen']*phen_expression
+        phen_hat = step['alpha']*phen_expression
         log_p_phen = np.log(stats.norm.pdf(phenotype, phen_hat, step['phenotype_sigma'])).sum()
         return log_p_beta_exp + log_p_sigma_exp + log_p_sigma_phen + log_p_expression + log_p_phen + log_p_beta
 
