@@ -404,10 +404,20 @@ class Association(object):
                                                 gene.train_expression,
                                                 self.genotype,
                                                 self.phenotype)
+            full_variational_mb = bay.full_variational_mb_model(gene.train_genotypes,
+                                                            gene.train_expression,
+                                                            self.genotype,
+                                                            self.phenotype)
+            full_variational_hs_mb = bay.full_variational_hs_mb_model(gene.train_genotypes,
+                                                            gene.train_expression,
+                                                            self.genotype,
+                                                            self.phenotype)
+
             models.append(ts_variational_model)
             models.append(full_variational)
             models.append(full_variational_hs)
-
+            models.append(full_variational_mb)
+            models.append(full_variational_hs_mb)
         self.bayesian_models = models
         return
 

@@ -18,7 +18,7 @@ from collections import namedtuple
 import theano.tensor as t
 import scipy.stats as stats
 import scipy.misc as misc
-
+import theano
 
 Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace', 'type', 'included_snps'])
 Model.__new__.__defaults__ = (None,) * len(Model._fields)
@@ -216,6 +216,57 @@ def full_variational_model(exp_genotypes, expression,
     return Model(phenotype_model, trace, trace['beta_exp'], 'full_variational')
 
 
+def create_minibatch_phen(data):
+    rng = np.random.RandomState(0)
+
+    while True:
+        # Return random data samples of set size 100 each iteration
+        ixs = rng.randint(len(data), size=100)
+        yield data[ixs]
+
+def full_variational_mb_model(exp_genotypes, expression,
+                           phen_genotypes, phenotypes,
+                           b=1, cauchy_beta=10, logistic=False):
+    '''
+    Fit phenotype and expression model at the same time.
+    '''
+    n_snps = exp_genotypes.shape[1]
+    exp_genotypes_ = theano.shared(exp_genotypes)
+    expression_ = theano.shared(expression)
+    phen_genotypes_ = theano.shared(phen_genotypes)
+    phenotypes_ = theano.shared(phenotypes)
+    with pm.Model() as phenotype_model:
+        # Expression
+        beta_exp = pm.Laplace('beta_exp', mu=0, b=1, shape=(1, n_snps),)
+        expression_mu = pm.dot(beta_exp, exp_genotypes_.T)
+        expression_sigma = pm.HalfCauchy('expression_sigma', beta=10)
+        exp = pm.Normal('exp', 
+                        mu=expression_mu, 
+                        sd=expression_sigma, 
+                        observed=expression_)
+        # Phenotype
+        alpha = pm.Normal('alpha', 0, 1)
+        phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes_.T)
+        phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=10)
+        phenotype_mu = alpha * phenotype_expression_mu
+        phen = pm.Normal('phen', 
+                         mu=phenotype_mu, 
+                         sd=phenotype_sigma, 
+                         observed=phenotypes_)
+
+    minibatch_RVs = [phen]
+    minibatch_tensors = [phen_genotypes_, phenotypes_]
+    minibatches = zip(create_minibatch_phen(phen_genotypes),
+                      create_minibatch_phen(phenotypes))
+    with phenotype_model:
+        v_params = pm.variational.advi_minibatch(n=50000,
+                                                 minibatch_tensors=minibatch_tensors,
+                                                 minibatch_RVs=minibatch_RVs,
+                                                 minibatches=minibatches,)
+        trace = pm.variational.sample_vp(v_params, draws=5000)
+
+    return Model(phenotype_model, trace, trace['beta_exp'], 'full_variational_mb')
+
 def full_variational_hs_model(exp_genotypes, expression,
                            phen_genotypes, phenotypes,
                            cauchy_exp=10, cauchy_beta=10, logistic=False):
@@ -248,6 +299,53 @@ def full_variational_hs_model(exp_genotypes, expression,
         v_params = pm.variational.advi(n=50000)
         trace = pm.variational.sample_vp(v_params, draws=5000)
     return Model(phenotype_model, trace, trace['beta_exp'], 'full_variational_hs')
+
+def full_variational_hs_mb_model(exp_genotypes, expression,
+                           phen_genotypes, phenotypes,
+                           cauchy_exp=1, cauchy_beta=10, logistic=False):
+    '''
+    Fit phenotype and expression model at the same time.
+    '''
+    n_snps = exp_genotypes.shape[1]
+    exp_genotypes_ = theano.shared(exp_genotypes)
+    expression_ = theano.shared(expression)
+    phen_genotypes_ = theano.shared(phen_genotypes)
+    phenotypes_ = theano.shared(phenotypes)
+    with pm.Model() as phenotype_model:
+
+        # Expression
+        tau_beta = pm.HalfCauchy('tau_beta', beta=cauchy_exp)
+        lambda_beta = pm.HalfCauchy('lambda_beta', 1, shape=(1, n_snps))
+        total_variance = pm.dot(lambda_beta*lambda_beta, tau_beta*tau_beta)
+        beta_exp = pm.Normal('beta_exp', mu=0, tau=1/total_variance, shape=(1, n_snps))
+        expression_mu = pm.dot(beta_exp, exp_genotypes_.T)
+        expression_sigma = pm.HalfCauchy('expression_sigma', beta=cauchy_beta)
+        exp = pm.Normal('expression', 
+                        mu=expression_mu, 
+                        sd=expression_sigma, 
+                        observed=expression_)
+        # Phenotype
+        alpha = pm.Normal('alpha', 0, 1)
+        phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes_.T)
+        phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=cauchy_beta)
+        phenotype_mu = alpha * phenotype_expression_mu
+        phen = pm.Normal('phen', 
+                         mu=phenotype_mu, 
+                         sd=phenotype_sigma, 
+                         observed=phenotypes_)
+
+    minibatch_RVs = [phen]
+    minibatch_tensors = [phen_genotypes_, phenotypes_]
+    minibatches = zip(create_minibatch_phen(phen_genotypes),
+                      create_minibatch_phen(phenotypes))
+    with phenotype_model:
+        v_params = pm.variational.advi_minibatch(n=50000,
+                                                 minibatch_tensors=minibatch_tensors,
+                                                 minibatch_RVs=minibatch_RVs,
+                                                 minibatches=minibatches,)
+        trace = pm.variational.sample_vp(v_params, draws=5000)
+
+    return Model(phenotype_model, trace, trace['beta_exp'], 'full_variational_hs_mb')
 
 
 def compute_ppc(model, samples=500, size=1):
@@ -288,7 +386,9 @@ def compute_ppc_oos(genotypes, model, num_steps=10000,):
         or model.type == 'two_stage' \
         or model.type == 'two_stage_variational' \
         or model.type == 'full_variational' \
-        or model.type == 'full_variational_hs':
+        or model.type == 'full_variational_hs' \
+        or model.type == 'full_variational_mb' \
+        or model.type == 'full_variational_hs_mb':
             exp = np.dot(genotypes,
                          model.trace[-num_steps:]['beta_exp'].mean(axis=0).T)
 
