@@ -66,10 +66,10 @@ def phenotype_model_with_pm(genotypes, phenotypes, beta_exp_trace,
             p = tinvlogit(alpha*expression)
             phen = pm.Bernoulli('phen', p=p, observed=phenotypes)
         start = pm.find_MAP()
-        phenotype_trace = pm.sample(15000, start=start, step=pm.NUTS(),
+        trace = pm.sample(15000, start=start, step=pm.NUTS(),
                                     progressbar=True)
 
-    return Model(phenotype_model, phenotype_trace[-10000:], beta_exp_trace, 'pm')
+    return Model(phenotype_model, trace[-10000:], beta_exp_trace, 'pm')
 
 
 def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
@@ -101,11 +101,11 @@ def phenotype_model_with_prior(genotypes, phenotypes, beta_exp_trace,
         start = pm.find_MAP()
         # step1 = pm.NUTS([beta_exp])
         # step2 = pm.Metropolis([alpha, sigma])
-        # phenotype_trace = pm.sample(20000, step=[step1, step2], start=start,
+        # trace = pm.sample(20000, step=[step1, step2], start=start,
         #                             progressbar=True)
-        phenotype_trace = pm.sample(50000, step=pm.NUTS(), start=start,
+        trace = pm.sample(50000, step=pm.NUTS(), start=start,
                                             progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-10000:], phenotype_trace['beta_exp'][-15000:], 'prior')
+    return Model(phenotype_model, trace[-10000:], trace['beta_exp'][-15000:], 'prior')
 
 
 def full_model(exp_genotypes, expression,
@@ -144,9 +144,9 @@ def full_model(exp_genotypes, expression,
         start = pm.find_MAP()
         step1 = pm.Metropolis([beta_exp, expression_sigma])
         step2 = pm.NUTS([alpha, phenotype_sigma])
-        phenotype_trace = pm.sample(150000, step=pm.Metropolis(), start=start, progressbar=True)
-        # phenotype_trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-15000:], phenotype_trace['beta_exp'][-15000:], 'full')
+        trace = pm.sample(150000, step=pm.Metropolis(), start=start, progressbar=True)
+        # trace = pm.sample(50000, step=[step1, step2], start=start, progressbar=True)
+    return Model(phenotype_model, trace[-15000:], trace['beta_exp'][-15000:], 'full')
 
 def two_stage_model(coefs, genotypes, phenotypes):
     p_inclusion = (coefs != 0).sum(axis=0)/coefs.shape[0]
@@ -161,8 +161,8 @@ def two_stage_model(coefs, genotypes, phenotypes):
         sigma = pm.HalfCauchy('sigma', beta=10)
         phen = pm.Normal('phen', mu=alpha*mu, sd=sigma, observed=phenotypes)
         start = pm.find_MAP()
-        phenotype_trace = pm.sample(20000, start=start, progressbar=True)
-    return Model(phenotype_model, phenotype_trace[-5000:], phenotype_trace['beta_exp'][:-5000:], 'two_stage')
+        trace = pm.sample(20000, start=start, progressbar=True)
+    return Model(phenotype_model, trace[-5000:], trace['beta_exp'][:-5000:], 'two_stage')
 
 
 def two_stage_variational_model(coefs, genotypes, phenotypes, min_inclusion_p=0.5):
@@ -184,6 +184,72 @@ def two_stage_variational_model(coefs, genotypes, phenotypes, min_inclusion_p=0.
     model = Model(phenotype_model, trace, trace['beta_exp'], 'two_stage_variational', included_snps)
     return model
 
+
+def full_variational_model(exp_genotypes, expression,
+                           phen_genotypes, phenotypes,
+                           b=1, cauchy_beta=10, logistic=False):
+    '''
+    Fit phenotype and expression model at the same time.
+    '''
+    n_snps = exp_genotypes.shape[1]
+    with pm.Model() as phenotype_model:
+
+        # Expression
+        beta_exp = pm.Laplace('beta_exp', mu=0, b=b, shape=(1, n_snps))
+        expression_mu = pm.dot(beta_exp, exp_genotypes.T)
+        expression_sigma = pm.HalfCauchy('expression_sigma', beta=10)
+        exp = pm.Normal('expression', 
+                        mu=expression_mu, 
+                        sd=expression_sigma, 
+                        observed=expression)
+        # Phenotype
+        alpha = pm.Normal('alpha', 0, 1)
+        phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes.T)
+        phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=cauchy_beta)
+        phenotype_mu = alpha * phenotype_expression_mu
+        phen = pm.Normal('phen', 
+                         mu=phenotype_mu, 
+                         sd=phenotype_sigma, 
+                         observed=phenotypes)
+        v_params = pm.variational.advi(n=50000)
+        trace = pm.variational.sample_vp(v_params, draws=5000)
+    return Model(phenotype_model, trace, trace['beta_exp'], 'full_variational')
+
+
+def full_variational_hs_model(exp_genotypes, expression,
+                           phen_genotypes, phenotypes,
+                           cauchy_exp=10, cauchy_beta=10, logistic=False):
+    '''
+    Fit phenotype and expression model at the same time.
+    '''
+    n_snps = exp_genotypes.shape[1]
+    with pm.Model() as phenotype_model:
+
+        # Expression
+        tau_beta = pm.HalfCauchy('tau_beta', beta=cauchy_exp)
+        lambda_beta = pm.HalfCauchy('lambda_beta', 1, shape=(1, n_snps))
+        total_variance = pm.dot(lambda_beta*lambda_beta, tau_beta*tau_beta)
+        beta_exp = pm.Normal('beta_exp', mu=0, tau=1/total_variance, shape=(1, n_snps))
+        expression_mu = pm.dot(beta_exp, exp_genotypes.T)
+        expression_sigma = pm.HalfCauchy('expression_sigma', beta=cauchy_beta)
+        exp = pm.Normal('expression', 
+                        mu=expression_mu, 
+                        sd=expression_sigma, 
+                        observed=expression)
+        # Phenotype
+        alpha = pm.Normal('alpha', 0, 1)
+        phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes.T)
+        phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=cauchy_beta)
+        phenotype_mu = alpha * phenotype_expression_mu
+        phen = pm.Normal('phen', 
+                         mu=phenotype_mu, 
+                         sd=phenotype_sigma, 
+                         observed=phenotypes)
+        v_params = pm.variational.advi(n=50000)
+        trace = pm.variational.sample_vp(v_params, draws=5000)
+    return Model(phenotype_model, trace, trace['beta_exp'], 'full_variational_hs')
+
+
 def compute_ppc(model, samples=500, size=1):
     '''
     models: dict((model_name, [model, trace]))
@@ -191,7 +257,7 @@ def compute_ppc(model, samples=500, size=1):
     values = []
     var = model.model.phen
     for idx in randint(0, len(model.trace), samples):
-        param = phenotype_trace[idx]
+        param = trace[idx]
         values.append(var.distribution.random(point=param, size=size).mean(0))
     values = np.asarray(values).mean(0)
     return values
@@ -220,7 +286,9 @@ def compute_ppc_oos(genotypes, model, num_steps=10000,):
     elif model.type == 'prior' \
         or model.type == 'full' \
         or model.type == 'two_stage' \
-        or model.type == 'two_stage_variational':
+        or model.type == 'two_stage_variational' \
+        or model.type == 'full_variational' \
+        or model.type == 'full_variational_hs':
             exp = np.dot(genotypes,
                          model.trace[-num_steps:]['beta_exp'].mean(axis=0).T)
 
@@ -237,7 +305,7 @@ def compute_mse_oos(genotypes, phenotypes, model):
     '''
     included_snps = model.included_snps
     if included_snps is None:
-        included_snps = numpy.arange(genotypes.shape[1])
+        included_snps = np.arange(genotypes.shape[1])
     
     exp_hat, phen_hat = compute_ppc_oos(genotypes[:, included_snps],
                                         model)
