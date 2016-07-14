@@ -156,7 +156,7 @@ def two_stage_model(coefs, genotypes, phenotypes):
     with pm.Model() as phenotype_model:
         inclusion = pm.Bernoulli('inclusion', p=p_inclusion, shape=(1, n_snps))
         beta_exp = pm.Normal('beta_exp', mu=p_beta.ravel(), sd=p_std.ravel(), shape=(1, n_snps))
-        alpha = pm.Uniform('alpha', -1e3, 1e3)
+        alpha = pm.Normal('alpha', 0, 1)
         mu = pm.dot(beta_exp*inclusion, genotypes.T)
         sigma = pm.HalfCauchy('sigma', beta=10)
         phen = pm.Normal('phen', mu=alpha*mu, sd=sigma, observed=phenotypes)
@@ -174,7 +174,7 @@ def two_stage_variational_model(coefs, genotypes, phenotypes, min_inclusion_p=0.
     with pm.Model() as phenotype_model:
         #inclusion = pm.Bernoulli('inclusion', p=p_inclusion, shape=(1, n_snps))
         beta_exp = pm.Normal('beta_exp', mu=p_beta.ravel(), sd=p_std.ravel(), shape=(1, n_snps))
-        alpha = pm.Uniform('alpha', -1e1, 1e1)
+        alpha = pm.Normal('alpha', 0, 1)
         mu = pm.dot(beta_exp, genotypes.T[included_snps])
         sigma = pm.HalfCauchy('sigma', beta=10)
         phen = pm.Normal('phen', mu=alpha*mu, sd=sigma, observed=phenotypes)
