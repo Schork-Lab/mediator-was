@@ -323,40 +323,12 @@ class Association(object):
         w_bootstrap = numpy.mean(pred_expr, axis=0)
         sigma_ui_bootstrap = numpy.var(pred_expr, ddof=1, axis=0)
 
-        # Bayesian
-        # exp_model = gene.bayesian_model
-        # beta_exp_trace = exp_model.trace[-5000::100]['beta_exp']
-        # beta_exp_trace = numpy.array([beta_exp_trace[:, 0][:, idx]
-        #                              for idx in range(genotype.shape[1])])
-        # pred_expr_bay = numpy.apply_along_axis(lambda x: genotype.dot(x.T),
-        #                                        0,
-        #                                        beta_exp_trace).T
-        # w_bay = numpy.mean(pred_expr_bay, axis=0)
-        # sigma_ui_bay = numpy.var(pred_expr_bay, ddof=1, axis=0)
-
         association = {'OLS': t(w, phenotype, method="OLS"),
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
                                            method="OLS"),
-                       #'OLS-Bayesian': t(w_bay, phenotype,
-                       # #                  method="OLS"),
-                       # 'WLS': t(w, phenotype, sigma_ui, method="WLS"),
-                       # 'Moment': t(w, phenotype, sigma_ui, method="moment"),
-                       # 'Moment2': t(w, phenotype, sigma_ui, method="moment2"),
-                       # 'Moment-Buo': t(w, phenotype, sigma_ui,
-                       #                 method="momentbuo"),
-                       # 'RC': t(w, phenotype, sigma_ui, method="rc"),
                        'RC-hetero-bootstrapped': t(w_bootstrap, phenotype,
-                                                   sigma_ui_bootstrap,
-                                                   method='rc-hetero'),
-                       # 'RC-hetero-se': t(w, phenotype, sigma_ui,
-                       #                   method="rc-hetero"),
-                       #'RC-hetero-bay': t(w_bay, phenotype, sigma_ui_bay,
-                       #                   method="rc-hetero"),
-                       # TODO: 'RC-Log' to have multiplicative error.
-                       # 'Weighted': t(w, phenotype, sigma_ui,
-                       #               method="weighted"),
+                                                   sigma_ui_bootstrap),
                        'MI-Bootstrapped': multiple_imputation(pred_expr, phenotype),
-                       #'MI-Bayesian': multiple_imputation(pred_expr_bay, phenotype),
                        }
         self.f_association = association
         return
@@ -364,6 +336,15 @@ class Association(object):
     def _fit_bayesian(self, gene, n_steps=10000, 
                       pm=True, prior=True, full=True,
                       ts=True, ts_variational=True):
+        '''
+        Fit Bayesian Models
+
+            pm: Posterior mean
+            prior: Moment matching
+            full: Joint using MCMC
+            ts: two stage (first stage: ElasticNet)
+            ts_variational: two 
+        '''
 
         models = []
         if pm or prior:
@@ -476,6 +457,22 @@ class Power():
         self.roc_df = self.roc_df()
         return
 
+    def posterior_alpha_inclusion(self, association):
+        '''
+        For Bayesian models, compute 95% credible interval for alpha
+        '''
+        inclusion = {}
+        for model in association.bayesian_models:
+            h = 1.96 * numpy.std(model.trace['alpha'])
+            m = numpy.mean(model.trace['alpha'])
+            if (0 > (m-h)) and (0 < (m+h)):
+                inclusion[(model.type, association.gene)] = 0
+            else:
+                inclusion[(model.type, association.gene)] = 1
+        df = pd.DataFrame.from_dict(inclusion, orient='index')
+        df.index = pd.MultiIndex.from_tuples(df.index)
+        return df
+
     def precision_recall_df(self):   
         precision_recall_df = pd.concat([self.f_estimator_df[['estimator', 'precision', 'recall']],
                                          self.b_estimator_df[['estimator', 'precision', 'recall']],
@@ -508,6 +505,7 @@ class Power():
         print(association_dir)
         f_association_dfs = []
         b_association_dfs = []
+        b_alpha_dfs = []
         bf_association_dfs = []
         if association_dir:
             with pm.Model():
@@ -515,16 +513,20 @@ class Power():
                     association = pickle.load(open(fn, 'rb'))
                     f_association_dfs.append(association.create_frequentist_df())
                     b_association_dfs.append(association.create_mse_df())
+                    b_alpha_dfs.append(self.posterior_alpha_inclusion(association))
                     # bf_association_dfs.append(association.create_bf_df())
                     del association
             self.f_association_df = pd.concat(f_association_dfs)
-            # self.b_association_df = pd.concat(b_association_dfs)
+            self.b_association_df = pd.concat(b_association_dfs)
+            self.b_alpha_dfs = pd.concat(b_alpha_dfs)
             # self.bf_association_df = pd.concat(bf_association_dfs)
         else:
             self.f_association_df = pd.concat([association.create_frequentist_df()
                                               for association in associations])
             self.b_association_df = pd.concat([association.create_mse_df()
                                               for association in associations])
+            self.b_alpha_dfs = pd.concat([self.posterior_alpha_inclusion(association)
+                                  for association in associations])
             # self.bf_association_df = pd.concat([association.create_bf_df()
             #                                    for association in associations])
 
@@ -550,6 +552,7 @@ class Power():
         #                                     self.bf_association_df.index.levels[0]))
 
         return
+
 
     def _calculate_estimator_df(self, association_df, estimator, sort_func=lambda x: x.sort_values('pvalue')):
         estimator_df = pd.DataFrame.copy(association_df.ix[estimator])
