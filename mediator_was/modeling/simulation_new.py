@@ -465,7 +465,7 @@ class Power():
     def __init__(self, study=None, associations=None, association_dir=None):
         if association_dir:
             self.association_dir = association_dir
-            study_file = glob.glob(association_dir+'id be *study.pkl')[0]
+            study_file = glob.glob(association_dir+'*study.pkl')[0]
             with pm.Model():
                 #study_file = os.path.join(association_dir, "study.pkl")
                 self.study = pickle.load(open(study_file, 'rb'))
@@ -514,7 +514,7 @@ class Power():
                 for fn in glob.glob(association_dir + '/assoc*.pkl'):
                     association = pickle.load(open(fn, 'rb'))
                     f_association_dfs.append(association.create_frequentist_df())
-                    # b_association_dfs.append(association.create_mse_df())
+                    b_association_dfs.append(association.create_mse_df())
                     # bf_association_dfs.append(association.create_bf_df())
                     del association
             self.f_association_df = pd.concat(f_association_dfs)
