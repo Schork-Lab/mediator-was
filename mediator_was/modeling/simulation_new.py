@@ -461,15 +461,12 @@ class Power():
         '''
         For Bayesian models, compute 95% credible interval for alpha
         '''
-        inclusion = {}
+        alpha = {}
         for model in association.bayesian_models:
-            h = 1.96 * numpy.std(model.trace['alpha'])
-            m = numpy.mean(model.trace['alpha'])
-            if (0 > (m-h)) and (0 < (m+h)):
-                inclusion[(model.type, association.gene)] = 0
-            else:
-                inclusion[(model.type, association.gene)] = 1
-        df = pd.DataFrame.from_dict(inclusion, orient='index')
+            sd = numpy.std(model.trace['alpha'])
+            mean = numpy.mean(model.trace['alpha'])
+            alpha[(model.type, association.gene)] = (mean, sd)
+        df = pd.DataFrame.from_dict(alpha, orient='index')
         df.index = pd.MultiIndex.from_tuples(df.index)
         return df
 
