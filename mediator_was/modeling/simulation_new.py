@@ -9,6 +9,7 @@ from __future__ import print_function
 import pickle
 import time
 import glob
+import os
 
 import numpy as np
 import numpy.random as R
@@ -513,26 +514,26 @@ class Power():
                                          association_df.index.levels[0]))
             return estimator_df
 
-        def get_associations(associations_dir):
+        def get_associations(association_dir):
             with pm.Model():
-                for fn in glob.glob(association_dir + '/assoc*.pkl'):
+                for fn in glob.glob(os.path.join(association_dir, 'assoc*.pkl')):
                     yield pickle.load(open(fn, 'rb'))
 
         if association_dir:
-            associations = get_associations(associations_dir)
-
-        self.f_association_df = pd.concat([association.create_frequentist_df()
-                                          for association in associations])
-        self.b_mse_df = pd.concat([association.create_mse_df()
-                                   for association in associations])
-        self.b_zscore_df = pd.concat([association.create_zscore_df()
-                                      for association in associations])
+            associations = get_associations(association_dir)
+        freq, mse, zscore = [], [], []
+        for association in associations:
+             freq.append(association.create_frequentist_df())
+             mse.append(association.create_mse_df())
+             zscore.append(association.create_zscore_df())
+        self.f_association_df = pd.concat(freq)
+        self.b_mse_df = pd.concat(mse)
+        self.b_zscore_df = pd.concat(zscore)
+        self.b_zscore_df['zscore'] = self.b_zscore_df['zscore'].map(abs)
 
         self.f_estimator_df = create_estimator_df(self.f_association_df)
-
         mse_sort = lambda x: x.sort_values('mse')
         self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
-
         zscore_sort = lambda x: x.sort_values('zscore', ascending=False)
         self.zscore_estimator_df = create_estimator_df(self.b_zscore_df, zscore_sort)
         return
