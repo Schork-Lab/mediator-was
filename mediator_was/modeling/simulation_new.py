@@ -420,6 +420,7 @@ class Association(object):
                           for model in self.bayesian_models)
 
             self.b_zscore = zscore
+
         return
 
     def create_frequentist_df(self):
@@ -501,7 +502,7 @@ class Power():
                             self.zscore_estimator_df[columns]])
         return roc_df
 
-    def _create_association_dfs(self, associations=None, association_dir=None):
+    def _create_association_dfs(self, associations=None, association_dir=None, mi=True):
         '''
         Create dataframes that combine all association statistics
         '''
@@ -519,23 +520,37 @@ class Power():
                 for fn in glob.glob(os.path.join(association_dir, 'assoc*.pkl')):
                     yield pickle.load(open(fn, 'rb'))
 
+        def create_mi_dfs(assoc):
+            mi = dict((model.type,
+                       bay.compute_mi(model, assoc.genotype, assoc.phenotype))
+                      for model in assoc.bayesian_models)
+            mi_df = pd.DataFrame.from_dict(mi, orient='index')
+            mi_df.columns = ['mean', 'se', 'pvalue']
+            mi_df.index = pd.MultiIndex.from_tuples([(index, assoc.gene)
+                                                    for index in mi_df.index])
+            return mi_df
+
         if association_dir:
             associations = get_associations(association_dir)
-        freq, mse, zscore = [], [], []
+        freq, mse, zscore, mi = [], [], [], []
         for association in associations:
-             freq.append(association.create_frequentist_df())
-             mse.append(association.create_mse_df())
-             zscore.append(association.create_zscore_df())
+            freq.append(association.create_frequentist_df())
+            mse.append(association.create_mse_df())
+            zscore.append(association.create_zscore_df())
+            mi.append(create_mi_dfs(association))
+
         self.f_association_df = pd.concat(freq)
         self.b_mse_df = pd.concat(mse)
         self.b_zscore_df = pd.concat(zscore)
         self.b_zscore_df['zscore'] = self.b_zscore_df['zscore'].map(abs)
+        self.b_mi_df = pd.concat(mi)
 
         self.f_estimator_df = create_estimator_df(self.f_association_df)
         mse_sort = lambda x: x.sort_values('mse')
         self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
         zscore_sort = lambda x: x.sort_values('zscore', ascending=False)
         self.zscore_estimator_df = create_estimator_df(self.b_zscore_df, zscore_sort)
+        self.mi_estimator_df = create_estimator_df(self.b_mi_df)
         return
 
     def _calculate_estimator_df(self, association_df,

@@ -19,6 +19,8 @@ import theano.tensor as t
 import scipy.stats as stats
 import scipy.misc as misc
 import theano
+import mediator_was.modeling.association as assoc
+
 
 Model = namedtuple('Model', ['model', 'trace', 'beta_exp_trace',
                              'type', 'included_snps'])
@@ -350,7 +352,7 @@ def joint_variational_hs_mb_model(exp_genotypes, expression,
                         sd=expression_sigma, 
                         observed=expression_)
         # Phenotype
-        alpha = pm.Normal('alpha', 0, 1)
+        alpha = pm.Uniform('alpha', -10, 10)
         phenotype_expression_mu = pm.dot(beta_exp, phen_genotypes_.T)
         phenotype_sigma = pm.HalfCauchy('phenotype_sigma', beta=cauchy_beta)
         phenotype_mu = alpha * phenotype_expression_mu
@@ -378,6 +380,18 @@ def compute_zscore(model, ):
     sd = np.std(model.trace['alpha'], ddof=1)
     zscore = mean / sd
     return mean, sd, zscore
+
+
+def compute_mi(model, genotypes, phenotypes):
+    included_snps = model.included_snps
+    if included_snps is None:
+        included_snps = np.arange(genotypes.shape[1])
+    included_snps = np.squeeze(included_snps)
+    genotypes = genotypes[:, included_snps]
+    trace = model.trace
+    beta_exp = np.squeeze(trace['beta_exp'], axis=1)
+    pred_expr = genotypes.dot(beta_exp.T)
+    return assoc.multiple_imputation(pred_expr, phenotypes)
 
 
 def compute_ppc(model, samples=500, size=1):
