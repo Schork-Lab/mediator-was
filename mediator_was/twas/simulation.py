@@ -354,7 +354,7 @@ class Association(object):
         w_bootstrap = np.mean(pred_expr, axis=0)
         sigma_ui_bootstrap = np.var(pred_expr, ddof=1, axis=0)
 
-        association = {'OLS': t(w, phenotype, method="OLS"),
+        association = {'OLS-Mean': t(w, phenotype, method="OLS"),
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
                                            method="OLS"),
                        'RC-hetero-bootstrapped': t(w_bootstrap, phenotype,
@@ -470,14 +470,14 @@ class Power():
     def precision_recall_df(self):
         columns = ['estimator', 'precision', 'recall']
         precision_recall_df = pd.concat([self.f_estimator_df[columns],
-                                         self.zscore_estimator_df[columns]
+                                         self.mse_estimator_df[columns]
                                          ])
         return precision_recall_df
 
     def roc_df(self):
         columns = ['estimator', 'fpr', 'recall']
         roc_df = pd.concat([self.f_estimator_df[columns],
-                            self.zscore_estimator_df[columns]])
+                            self.mse_estimator_df[columns]])
         return roc_df
 
     def _create_association_dfs(self, associations=None, association_dir=None, mi=True):
