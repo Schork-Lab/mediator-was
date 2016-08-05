@@ -320,7 +320,7 @@ class Association(object):
         self._bayesian(gene)
         return
 
-    def _generate_kfolds(self, k=2, seed=0):
+    def _generate_kfolds(self, k=5, seed=0):
         '''
         Generate train and testing folds foruse in cross-validation
         for Bayesian inference. Uses a seed to insure the same folds are used
@@ -332,8 +332,8 @@ class Association(object):
             k (int, optional): number of folds (default: 10)
             seed (int, optional): consistent random state (default: 0)
         '''
-        self.kfolds = KFold(self.genotype.shape[0], n_folds=k,
-                            random_state=seed)
+        self.kfolds = list(KFold(self.genotype.shape[0],
+                                 n_folds=k, random_state=seed))
         return
 
     def _frequentist(self, gene):
@@ -377,24 +377,25 @@ class Association(object):
         coef_sd = elasticnet[columns].std(axis=0, ddof=1).values
         ts_model = bay.TwoStage(coef_mean, coef_sd,
                                 variational=True)
-        ts_stats = ts_model.cross_validation(k_folds=self.kfolds,
+        ts_traces, ts_stats = ts_model.cross_validation(k_folds=self.kfolds,
                                              gwas_gen=self.genotype[:,columns],
                                              gwas_phen=self.phenotype)
         j_model = bay.Joint(variational=True, mb=True)
-        j_stats = j_model.cross_validation(k_folds=self.kfolds,
+        j_traces, j_stats = j_model.cross_validation(k_folds=self.kfolds,
                                            med_gen=gene.train_genotypes,
                                            med_phen=gene.train_expression,
                                            gwas_gen=self.genotype,
                                            gwas_phen=self.phenotype)
 
-        self.b_models = [ts_model, j_model]
+        self.b_traces = [ts_traces, j_traces]
         self.b_stats = [ts_stats, j_stats]
-        self.b_mse = dict((model.name, np.mean([x['mse'] for x in stats]))
-                          for model, stats in zip(self.b_models,
+        models = ['Two Stage', 'Joint']
+        self.b_mse = dict((model, np.mean([x['mse'] for x in stats]))
+                          for model, stats in zip(models,
                                                   self.b_stats)
                           )
-        self.b_logp = dict((model.name, np.sum([x['logp'] for x in stats]))
-                           for model, stats in zip(self.b_models,
+        self.b_logp = dict((model, np.sum([x['logp'] for x in stats]))
+                           for model, stats in zip(models,
                                                    self.b_stats)
                            )
         return

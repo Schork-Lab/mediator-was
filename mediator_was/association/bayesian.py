@@ -170,7 +170,7 @@ class BayesianModel(object):
             stats = self.calculate_statistics(trace, **input_test)
             self.cv_traces.append(trace)
             self.cv_stats.append(stats)
-        return self.cv_stats
+        return self.cv_traces, self.cv_stats
 
     def calculate_statistics(self, trace, **input_test):
         """
