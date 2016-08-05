@@ -18,11 +18,13 @@ import sklearn.metrics
 import sklearn.utils
 import pandas as pd
 import pymc3 as pm
+from sklearn.cross_validation import KFold
 
 
-from mediator_was.modeling.association import *
+from mediator_was.association.frequentist import *
 from mediator_was.processing.helpers import load_plink
-import mediator_was.modeling.bayesian as bay
+
+import mediator_was.association.bayesian as bay
 
 
 current_milli_time = lambda: int(round(time.time() * 1000))
@@ -276,8 +278,8 @@ class Association(object):
 
 
     Args:
-        gene - gene.id
-        study - study.id
+        gene - Gene object
+        study - Study object
 
     Attributes:
         phenotype - study.phenotype
@@ -313,12 +315,28 @@ class Association(object):
             self.beta = 0
             self.expected_pve = 0
 
-        self._test_frequentist(gene)
-        self._fit_bayesian(gene, pm=False, prior=False, joint=False, ts=False)
-        self._test_bayesian(gene)
+        self._generate_kfolds()
+        self._frequentist(gene)
+        self._bayesian(gene)
         return
 
-    def _test_frequentist(self, gene):
+    def _generate_kfolds(self, k=2, seed=0):
+        '''
+        Generate train and testing folds foruse in cross-validation
+        for Bayesian inference. Uses a seed to insure the same folds are used
+        for each association task.
+
+        TODO: StratifiedKFold for case/control studies
+
+        Args:
+            k (int, optional): number of folds (default: 10)
+            seed (int, optional): consistent random state (default: 0)
+        '''
+        self.kfolds = KFold(self.genotype.shape[0], n_folds=k,
+                            random_state=seed)
+        return
+
+    def _frequentist(self, gene):
         '''
         Fit frequentist methods for association
         '''
@@ -347,80 +365,38 @@ class Association(object):
         self.f_association = association
         return
 
-    def _fit_bayesian(self, gene, n_steps=10000,
-                      pm=True, prior=True, joint=True,
-                      ts=True, ts_variational=True,
-                      joint_variational=True):
+    def _bayesian(self, gene, ):
         '''
-        Fit Bayesian Models
-            pm - Posterior mean
-            prior - Moment matching
-            joint -  Joint using MCMC
-            ts - two stage (first stage: ElasticNet)
-            ts_variational - two stage variational
-            joint_variational - joint model with variational
+        Fit Bayesian models and calculate statistics based on both
+        out of sample MSE and cross-validation.
         '''
+        elasticnet = pd.DataFrame([model.coef_
+                                   for model in gene.bootstrap_models])
+        columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
+        coef_mean = elasticnet[columns].mean(axis=0).values
+        coef_sd = elasticnet[columns].std(axis=0, ddof=1).values
+        ts_model = bay.TwoStage(coef_mean, coef_sd,
+                                variational=True)
+        ts_stats = ts_model.cross_validation(k_folds=self.kfolds,
+                                             gwas_gen=self.genotype[:,columns],
+                                             gwas_phen=self.phenotype)
+        j_model = bay.Joint(variational=True, mb=True)
+        j_stats = j_model.cross_validation(k_folds=self.kfolds,
+                                           med_gen=gene.train_genotypes,
+                                           med_phen=gene.train_expression,
+                                           gwas_gen=self.genotype,
+                                           gwas_phen=self.phenotype)
 
-        models = []
-        if pm or prior:
-            exp_model = gene.bayesian_model
-            exp_trace = exp_model.beta_exp_trace[-n_steps:]
-        if pm:
-            pm_model = bay.phenotype_model_with_pm(self.genotype,
-                                                   self.phenotype,
-                                                   exp_trace)
-            models.append(pm_model)
-        if prior:
-            prior_model = bay.phenotype_model_with_prior(self.genotype,
-                                                         self.phenotype,
-                                                         exp_trace)
-            models.append(prior_model)
-        if joint:
-            joint_model = bay.joint_model(gene.train_genotypes,
-                                          gene.train_expression,
-                                          self.genotype,
-                                          self.phenotype)
-            models.append(joint_model)
-        if ts:
-            coefs = pd.DataFrame([model.coef_
-                                 for model in gene.bootstrap_models])
-            args = (coefs, self.genotype, self.phenotype)
-            models.append(bay.two_stage_model(*args))
-        if ts_variational:
-            coefs = pd.DataFrame([model.coef_
-                                  for model in gene.bootstrap_models])
-            args = (coefs, self.genotype, self.phenotype)
-            models.append(bay.two_stage_variational_model(*args))
-        if joint_variational:
-            all_args = (gene.train_genotypes, gene.train_expression,
-                        self.genotype, self.phenotype)
-            models.append(bay.joint_variational_model(*all_args))
-            models.append(bay.joint_variational_hs_model(*all_args))
-            models.append(bay.joint_variational_mb_model(*all_args))
-            models.append(bay.joint_variational_hs_mb_model(*all_args))
-
-        self.bayesian_models = models
-        return
-
-    def _test_bayesian(self, mse=True, zscore=True):
-        '''
-        Compute Bayesian statistics including mse and zscore
-        '''
-        if mse:
-            mse = dict((model.type,
-                        bay.compute_mse_oos(self.oos_genotype,
-                                            self.oos_phenotype,
-                                            model))
-                       for model in self.bayesian_models)
-            self.b_mse = mse
-
-        if zscore:
-            zscore = dict((model.type,
-                           bay.compute_zscore(model))
-                          for model in self.bayesian_models)
-
-            self.b_zscore = zscore
-
+        self.b_models = [ts_model, j_model]
+        self.b_stats = [ts_stats, j_stats]
+        self.b_mse = dict((model.name, np.mean([x['mse'] for x in stats]))
+                          for model, stats in zip(self.b_models,
+                                                  self.b_stats)
+                          )
+        self.b_logp = dict((model.name, np.sum([x['logp'] for x in stats]))
+                           for model, stats in zip(self.b_models,
+                                                   self.b_stats)
+                           )
         return
 
     def create_frequentist_df(self):
@@ -443,15 +419,16 @@ class Association(object):
                                                 b_df.index])
         return b_df
 
-    def create_zscore_df(self):
+    def create_logp_df(self):
         '''
-        Create dataframe from b_zscore dict
+        Create dataframe from b_mse dict
         '''
-        zscore_df = pd.DataFrame.from_dict(self.b_zscore, orient='index')
-        zscore_df.columns = ['mean', 'sd', 'zscore']
-        zscore_df.index = pd.MultiIndex.from_tuples([(index, self.gene)
-                                                    for index in zscore_df.index])
-        return zscore_df
+        b_df = pd.DataFrame.from_dict(self.b_logp, orient='index')
+        b_df.columns = ['logp']
+        b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
+                                                b_df.index])
+        return b_df
+
 
 
 class Power():
@@ -517,40 +494,27 @@ class Power():
 
         def get_associations(association_dir):
             with pm.Model():
-                for fn in glob.glob(os.path.join(association_dir, 'assoc*.pkl')):
+                for fn in glob.glob(os.path.join(association_dir,
+                                                'assoc*.pkl')):
                     yield pickle.load(open(fn, 'rb'))
-
-        def create_mi_dfs(assoc):
-            mi = dict((model.type,
-                       bay.compute_mi(model, assoc.genotype, assoc.phenotype))
-                      for model in assoc.bayesian_models)
-            mi_df = pd.DataFrame.from_dict(mi, orient='index')
-            mi_df.columns = ['mean', 'se', 'pvalue']
-            mi_df.index = pd.MultiIndex.from_tuples([(index, assoc.gene)
-                                                    for index in mi_df.index])
-            return mi_df
 
         if association_dir:
             associations = get_associations(association_dir)
-        freq, mse, zscore, mi = [], [], [], []
+        freq, mse, logp = [], [], []
         for association in associations:
             freq.append(association.create_frequentist_df())
             mse.append(association.create_mse_df())
-            zscore.append(association.create_zscore_df())
-            mi.append(create_mi_dfs(association))
+            logp.append(association.create_logp_df())
 
         self.f_association_df = pd.concat(freq)
         self.b_mse_df = pd.concat(mse)
-        self.b_zscore_df = pd.concat(zscore)
-        self.b_zscore_df['zscore'] = self.b_zscore_df['zscore'].map(abs)
-        self.b_mi_df = pd.concat(mi)
+        self.b_logp_df = pd.concat(logp)
 
         self.f_estimator_df = create_estimator_df(self.f_association_df)
         mse_sort = lambda x: x.sort_values('mse')
         self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
-        zscore_sort = lambda x: x.sort_values('zscore', ascending=False)
-        self.zscore_estimator_df = create_estimator_df(self.b_zscore_df, zscore_sort)
-        self.mi_estimator_df = create_estimator_df(self.b_mi_df)
+        logp_sort = lambda x: x.sort_values('logp')
+        self.logp_estimator_df = create_estimator_df(self.b_logp_df, logp_sort)
         return
 
     def _calculate_estimator_df(self, association_df,

@@ -42,8 +42,11 @@ def load_gencode(gencode=gencode):
     gencode_df = gencode_df[gencode_df['type'] == 'gene']
     gencode_df['gene'] = gencode_df['info'].map(lambda x: x.split('gene_id')[1].split()[0].split('"')[1])
     gencode_df['gene_name'] = gencode_df['info'].map(lambda x: x.split('gene_name')[1].split()[0].split('"')[1])
+
     gencode_df = gencode_df[['chromosome', 'start', 'end', 'gene', 'gene_name']].drop_duplicates().set_index(['gene'])
     return gencode_df
+
+
 
 def load_database(fn=en_db,
                   alpha=1.0):
@@ -64,12 +67,20 @@ def load_sql_database(fn, gencode_df=None):
     '''
     Load SQL Predixcan Databases into Pandas Dataframes
     '''
+    def get_gene_name(gene):
+        if gene.startswith('ENSG'):
+            try:
+                gene = gencode_df.ix[gene.split('.')[0]]['gene_name']
+            except:
+                pass
+        return gene
+
     conn = sqlite3.connect(fn)
     en_df = pd.read_sql('SELECT * from weights', conn)
     en_df = add_positions_to_database(en_df)
-    if not gencode:
+    if gencode_df is None:
         gencode_df = load_gencode()
-    en_df['gene'] = gencode_df.ix[en_df['gene']]['gene_name'].values
+    en_df['gene'] = en_df['gene'].map(get_gene_name)
     en_df.index = range(len(en_df))
     en_df.rename(columns={'ref_allele': 'ref', 'eff_allele': 'alt', 'weight': 'beta',
                           'chr': 'chromosome', 'end': 'position'}, inplace=True)

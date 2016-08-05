@@ -1,7 +1,7 @@
 
 import sys
 import pickle
-import mediator_was.modeling.simulation_new as s
+import mediator_was.twas.simulation as s
 import pymc3 as pm
 
 
