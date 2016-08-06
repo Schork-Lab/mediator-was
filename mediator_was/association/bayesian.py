@@ -184,8 +184,10 @@ class BayesianModel(object):
         inputs = self._clean_inputs(input_test)
         mc_logp = self._logp(trace, **inputs)
         mean_mse = self._mse(trace, **inputs)
+        mse2 = self._mse2(trace, **inputs)
         return {'logp': mc_logp,
-                'mse': mean_mse}
+                'mse': mean_mse,
+                'mse2': mse2}
 
     def _logp(self, trace, **inputs):
         """
@@ -234,6 +236,25 @@ class BayesianModel(object):
             phen_mse = np.mean((inputs['gwas_phen'] - phen_pred) ** 2)
         mean_mse = np.mean(phen_mse)
         return mean_mse
+
+    def _mse2(self, trace, **inputs):
+        """
+        Calculate mean squared error of the model fit.
+
+        TODO: confirm that it's okay to take mean across the steps
+              of the trace.
+        Args:
+            **inputs (dict): inputs used in likelhood calculation
+            trace (PyMC3.trace): Trace of the inference chain
+
+        Returns:
+            float: Mean squared error across all samples
+        """
+        exp = np.dot(inputs['gwas_gen'],
+                     trace['beta_med'].mean(axis=0).T)
+        phen_pred = exp * trace['alpha'].mean()
+        mse = np.mean((inputs['gwas_phen'] - phen_pred) ** 2)
+        return mse
 
     def _alpha_zscore(self, model):
         """Summary

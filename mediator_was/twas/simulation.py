@@ -373,6 +373,7 @@ class Association(object):
         elasticnet = pd.DataFrame([model.coef_
                                    for model in gene.bootstrap_models])
         columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
+        self.included_snps = columns
         coef_mean = elasticnet[columns].mean(axis=0).values
         coef_sd = elasticnet[columns].std(axis=0, ddof=1).values
         ts_model = bay.TwoStage(coef_mean, coef_sd,
