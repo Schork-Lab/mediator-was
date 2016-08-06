@@ -125,7 +125,7 @@ class BayesianModel(object):
         with self.cached_model:
             if self.variational:
                 if self.mb:
-                    v_params = pm.variational.advi_minibatch(n=samples,
+                    v_params = pm.variational.advi_minibatch(n=self.n_chain,
                                minibatch_tensors=self.minibatch_tensors,
                                minibatch_RVs=self.minibatch_RVs,
                                minibatches=self.minibatches,)
@@ -134,7 +134,7 @@ class BayesianModel(object):
                 trace = pm.variational.sample_vp(v_params, draws=n_trace)
             else:
                 start = pm.find_MAP()
-                trace = pm.sample(samples, step=pm.Metropolis(),
+                trace = pm.sample(self.n_chain, step=pm.Metropolis(),
                                   start=start, progressbar=True)
                 trace = trace[-n_trace:]
         return trace
