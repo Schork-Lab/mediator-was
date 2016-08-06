@@ -3,8 +3,7 @@ Bayesian models for TWAS.
 
 Author: Kunal Bhutani <kunalbhutani@gmail.com>
 '''
-from collections import defaultdict
-from scipy.stats import multivariate_normal as mvn
+
 from scipy.stats import norm
 import pymc3 as pm
 import numpy as np
@@ -15,10 +14,10 @@ class BayesianModel(object):
     '''
     General Bayesian Model Class for quantifying
     relationship between gene and phenotype
-    
+
     Adapted from Thomas Wiecki
     https://github.com/pymc-devs/pymc3/issues/511#issuecomment-125935523
-    
+
     Attributes:
         cached_model (TYPE): Description
         k_folds (TYPE): Description
@@ -29,7 +28,7 @@ class BayesianModel(object):
         variational (TYPE): Description
     '''
 
-    def __init__(self, variational=True, mb=False):
+    def __init__(self, variational=True, mb=False, n_chain=50000):
         """
         Args:
             variational (bool, optional): Use Variational Inference
@@ -38,6 +37,7 @@ class BayesianModel(object):
         self.variational = variational
         self.cached_model = None
         self.mb = mb
+        self.n_chain = n_chain
 
     def cache_model(self, **inputs):
         """
@@ -109,7 +109,7 @@ class BayesianModel(object):
         self.trace = self._inference()
         return self.trace
 
-    def _inference(self, samples=10000, n_trace=5000):
+    def _inference(self, n_trace=5000):
         """
         Perform the inference. Uses ADVI if self.variational
         is True. Also, uses minibatches is self.mb=True based
@@ -118,7 +118,6 @@ class BayesianModel(object):
         Otherwise, uses Metropolis.
 
         Args:
-            samples (int, optional): Number of steps
             n_trace (int, optional): Number of steps used for trace
         Returns:
             trace: Trace of the PyMC3 inference
@@ -131,7 +130,7 @@ class BayesianModel(object):
                                minibatch_RVs=self.minibatch_RVs,
                                minibatches=self.minibatches,)
                 else:
-                    v_params = pm.variational.advi(n=samples)
+                    v_params = pm.variational.advi(n=self.n_chain)
                 trace = pm.variational.sample_vp(v_params, draws=n_trace)
             else:
                 start = pm.find_MAP()
@@ -250,7 +249,7 @@ class BayesianModel(object):
         zscore = mean / sd
         return mean, sd, zscore
 
-    def _mb_generator(self, data, size=50):
+    def _mb_generator(self, data, size=750):
         """Summary
         
         Args:
