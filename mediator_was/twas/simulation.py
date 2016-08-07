@@ -532,7 +532,7 @@ class Power():
         self.f_estimator_df = create_estimator_df(self.f_association_df)
         mse_sort = lambda x: x.sort_values('mse')
         self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
-        self.mse2_estimator_df = create_estimator_df(self.bmse2_df, mse_sort)
+        self.mse2_estimator_df = create_estimator_df(self.b_mse2_df, mse_sort)
         logp_sort = lambda x: x.sort_values('logp')
         self.logp_estimator_df = create_estimator_df(self.b_logp_df, logp_sort)
         return
