@@ -481,7 +481,7 @@ class Power():
                             self.mse_estimator_df[columns]])
         return roc_df
 
-    def _create_association_dfs(self, associations=None, association_dir=None, mi=True):
+    def _create_association_dfs(self, associations=None, association_dir=None):
         '''
         Create dataframes that combine all association statistics
         '''
@@ -497,24 +497,39 @@ class Power():
         def get_associations(association_dir):
             with pm.Model():
                 for fn in glob.glob(os.path.join(association_dir,
-                                                'assoc*.pkl')):
+                                                 'assoc*.pkl')):
                     yield pickle.load(open(fn, 'rb'))
+
+        def create_mse2(association):
+            models = ['Two Stage', 'Joint']
+            b_mse2 = dict((model, np.mean([x['mse2'] for x in stats]))
+                          for model, stats in zip(models,
+                                                  association.b_stats)
+                          )
+            b_df = pd.DataFrame.from_dict(b_mse2, orient='index')
+            b_df.columns = ['mse']
+            b_df.index = pd.MultiIndex.from_tuples([(index, association.gene)
+                                                   for index in b_df.index])
+            return b_df
 
         if association_dir:
             associations = get_associations(association_dir)
-        freq, mse, logp = [], [], []
+        freq, mse, mse2, logp = [], [], [], []
         for association in associations:
             freq.append(association.create_frequentist_df())
             mse.append(association.create_mse_df())
+            mse2.append(create_mse2(association))
             logp.append(association.create_logp_df())
 
         self.f_association_df = pd.concat(freq)
         self.b_mse_df = pd.concat(mse)
+        self.b_mse2_df = pd.concat(mse2)
         self.b_logp_df = pd.concat(logp)
 
         self.f_estimator_df = create_estimator_df(self.f_association_df)
         mse_sort = lambda x: x.sort_values('mse')
         self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
+        self.mse2_estimator_df = create_estimator_df(self.bmse2_df, mse_sort)
         logp_sort = lambda x: x.sort_values('logp')
         self.logp_estimator_df = create_estimator_df(self.b_logp_df, logp_sort)
         return
