@@ -516,10 +516,13 @@ class Power():
             associations = get_associations(association_dir)
         freq, mse, mse2, logp = [], [], [], []
         for association in associations:
-            freq.append(association.create_frequentist_df())
-            mse.append(association.create_mse_df())
-            mse2.append(create_mse2(association))
-            logp.append(association.create_logp_df())
+            try:
+                mse2.append(create_mse2(association))
+                freq.append(association.create_frequentist_df())
+                mse.append(association.create_mse_df())
+                logp.append(association.create_logp_df())
+            except:
+                print("{} mse2 not found".format(association.name))
 
         self.f_association_df = pd.concat(freq)
         self.b_mse_df = pd.concat(mse)
