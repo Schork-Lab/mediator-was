@@ -1,6 +1,13 @@
 """
 Simulate a TWAS study design modularily.
 
+Things different:
+    1. Out of sample predictive check
+        a. n = 5000 for training AND testing [Can't change]
+    2. Normal prior for alpha [Changed]
+    3. Minibatch size = 500 [Changed]
+    4. Mediator Half Cauchy Beta = 10 [Changed already]
+
 Author: Kunal Bhutani   <kunalbhutani@gmail.com>
         Abhishek Sarkar <aksarkar@mit.edu>
 """
@@ -18,7 +25,7 @@ import sklearn.metrics
 import sklearn.utils
 import pandas as pd
 import pymc3 as pm
-from sklearn.cross_validation import KFold
+from sklearn.cross_validation import KFold, ShuffleSplit
 
 
 from mediator_was.association.frequentist import *
@@ -332,8 +339,11 @@ class Association(object):
             k (int, optional): number of folds (default: 10)
             seed (int, optional): consistent random state (default: 0)
         '''
-        self.kfolds = list(KFold(self.genotype.shape[0],
-                                 n_folds=k, random_state=seed))
+        # self.kfolds = list(KFold(self.genotype.shape[0],
+        #                         n_folds=k, random_state=seed))
+        self.kfolds = list(ShuffleSplit(self.genotype.shape[0],
+                                        n_iter=1, test_size=0.3,
+                                        random_state=seed))
         return
 
     def _frequentist(self, gene):

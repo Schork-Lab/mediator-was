@@ -185,9 +185,11 @@ class BayesianModel(object):
         mc_logp = self._logp(trace, **inputs)
         mean_mse = self._mse(trace, **inputs)
         mse2 = self._mse2(trace, **inputs)
+        zscore = self._alpha_zscore(trace)
         return {'logp': mc_logp,
                 'mse': mean_mse,
-                'mse2': mse2}
+                'mse2': mse2,
+                'zscore': zscore}
 
     def _logp(self, trace, **inputs):
         """
@@ -256,7 +258,7 @@ class BayesianModel(object):
         mse = np.mean((inputs['gwas_phen'] - phen_pred) ** 2)
         return mse
 
-    def _alpha_zscore(self, model):
+    def _alpha_zscore(self, trace):
         """Summary
         
         Args:
@@ -265,12 +267,12 @@ class BayesianModel(object):
         Returns:
             TYPE: Description
         """
-        mean = np.mean(model.trace['alpha'])
-        sd = np.std(model.trace['alpha'], ddof=1)
+        mean = np.mean(trace['alpha'])
+        sd = np.std(trace['alpha'], ddof=1)
         zscore = mean / sd
         return mean, sd, zscore
 
-    def _mb_generator(self, data, size=750):
+    def _mb_generator(self, data, size=500):
         """Summary
         
         Args:
@@ -329,7 +331,7 @@ class TwoStage(BayesianModel):
                                  mu=self.vars['coef_mean'],
                                  sd=self.vars['coef_sd'],
                                  shape=(1, n_snps))
-            alpha = pm.Uniform('alpha', -10, 10)
+            alpha = pm.Normal('alpha', 0, 1)
             mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
@@ -349,7 +351,7 @@ class Joint(BayesianModel):
     its effect on the phenotype.
 
     """
-    def __init__(self, tau_beta=10, lambda_beta=1, m_sigma_beta=1,
+    def __init__(self, tau_beta=10, lambda_beta=1, m_sigma_beta=10,
                  p_sigma_beta=10, *args, **kwargs):
         """
             Expression ~ N(X\beta, \sigma_exp)
@@ -393,7 +395,7 @@ class Joint(BayesianModel):
                                      beta=self.vars['tau_beta'])
             lambda_beta = pm.HalfCauchy('lambda_beta',
                                         beta=self.vars['lambda_beta'],
-                                        shape=(1, ))
+                                        shape=(1, n_snps))
             total_variance = pm.dot(lambda_beta * lambda_beta,
                                     tau_beta * tau_beta)
             beta_med = pm.Normal('beta_med',
@@ -408,7 +410,7 @@ class Joint(BayesianModel):
                                  sd=mediator_sigma,
                                  observed=med_phen)
             # Phenotype
-            alpha = pm.Uniform('alpha', -10, 10)
+            alpha = pm.Normal('alpha', 0, 1)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
