@@ -491,14 +491,14 @@ class Power():
     def precision_recall_df(self):
         columns = ['estimator', 'precision', 'recall']
         precision_recall_df = pd.concat([self.f_estimator_df[columns],
-                                         self.mse_estimator_df[columns]
+                                         self.waic_estimator_df[columns]
                                          ])
         return precision_recall_df
 
     def roc_df(self):
         columns = ['estimator', 'fpr', 'recall']
         roc_df = pd.concat([self.f_estimator_df[columns],
-                            self.mse_estimator_df[columns]])
+                            self.waic_estimator_df[columns]])
         return roc_df
 
     def _create_association_dfs(self, associations=None, association_dir=None):
@@ -520,41 +520,55 @@ class Power():
                                                  'assoc*.pkl')):
                     yield pickle.load(open(fn, 'rb'))
 
-        def create_mse2(association):
+        def create_stat_df(association, stat='waic'):
             models = ['Two Stage', 'Joint']
-            b_mse2 = dict((model, np.mean([x['mse2'] for x in stats]))
+            b_mse2 = dict((model, np.mean([x[stat] for x in stats]))
                           for model, stats in zip(models,
                                                   association.b_stats)
                           )
             b_df = pd.DataFrame.from_dict(b_mse2, orient='index')
-            b_df.columns = ['mse']
+            b_df.columns = [stat]
             b_df.index = pd.MultiIndex.from_tuples([(index, association.gene)
                                                    for index in b_df.index])
             return b_df
 
         if association_dir:
             associations = get_associations(association_dir)
-        freq, mse, mse2, logp = [], [], [], []
+        #freq, mse, mse2, logp = [], [], [], []
+        freq, dic, waic, loo, logp = [], [], [], [], []
         for association in associations:
             try:
-                mse2.append(create_mse2(association))
+                dic.append(create_stat_df(association, 'dic'))
+                waic.append(create_stat_df(association, 'waic'))
+                loo.append(create_stat_df(association, 'loo'))
+                logp.append(create_stat_df(association, 'logp'))
+                # mse2.append(create_mse2(association))
                 freq.append(association.create_frequentist_df())
-                mse.append(association.create_mse_df())
-                logp.append(association.create_logp_df())
+                # mse.append(association.create_mse_df())
+                # logp.append(association.create_logp_df())
             except:
                 print("{} mse2 not found".format(association.name))
 
         self.f_association_df = pd.concat(freq)
-        self.b_mse_df = pd.concat(mse)
-        self.b_mse2_df = pd.concat(mse2)
+        self.b_dic_df = pd.concat(dic)
+        self.b_waic_df = pd.concat(waic)
+        self.b_loo_df = pd.concat(loo)
         self.b_logp_df = pd.concat(logp)
+        # self.b_mse_df = pd.concat(mse)
+        # self.b_mse2_df = pd.concat(mse2)
+        # self.b_logp_df = pd.concat(logp)
 
         self.f_estimator_df = create_estimator_df(self.f_association_df)
-        mse_sort = lambda x: x.sort_values('mse')
-        self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
-        self.mse2_estimator_df = create_estimator_df(self.b_mse2_df, mse_sort)
-        logp_sort = lambda x: x.sort_values('logp')
+        logp_sort = lambda x: x.sort_values('logp', ascending=False)
         self.logp_estimator_df = create_estimator_df(self.b_logp_df, logp_sort)
+        loo_sort = lambda x: x.sort_values('loo', ascending=False)
+        self.loo_estimator_df = create_estimator_df(self.b_loo_df, loo_sort)
+        waic_sort = lambda x: x.sort_values('waic')
+        self.waic_estimator_df = create_estimator_df(self.b_waic_df, waic_sort)
+
+        # mse_sort = lambda x: x.sort_values('mse')
+        # self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
+        # self.mse2_estimator_df = create_estimator_df(self.b_mse2_df, mse_sort)
         return
 
     def _calculate_estimator_df(self, association_df,
