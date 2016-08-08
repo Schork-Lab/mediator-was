@@ -522,11 +522,11 @@ class Power():
 
         def create_stat_df(association, stat='waic'):
             models = ['Two Stage', 'Joint']
-            b_mse2 = dict((model, np.mean([x[stat] for x in stats]))
+            b_stat = dict((model, stats[stat])
                           for model, stats in zip(models,
                                                   association.b_stats)
                           )
-            b_df = pd.DataFrame.from_dict(b_mse2, orient='index')
+            b_df = pd.DataFrame.from_dict(b_stat, orient='index')
             b_df.columns = [stat]
             b_df.index = pd.MultiIndex.from_tuples([(index, association.gene)
                                                    for index in b_df.index])
@@ -537,18 +537,15 @@ class Power():
         #freq, mse, mse2, logp = [], [], [], []
         freq, dic, waic, loo, logp = [], [], [], [], []
         for association in associations:
-            try:
-                dic.append(create_stat_df(association, 'dic'))
-                waic.append(create_stat_df(association, 'waic'))
-                loo.append(create_stat_df(association, 'loo'))
-                logp.append(create_stat_df(association, 'logp'))
-                # mse2.append(create_mse2(association))
-                freq.append(association.create_frequentist_df())
-                # mse.append(association.create_mse_df())
-                # logp.append(association.create_logp_df())
-            except:
-                print("{} mse2 not found".format(association.name))
-
+            dic.append(create_stat_df(association, 'dic'))
+            waic.append(create_stat_df(association, 'waic'))
+            loo.append(create_stat_df(association, 'loo'))
+            logp.append(create_stat_df(association, 'logp'))
+            # mse2.append(create_mse2(association))
+            freq.append(association.create_frequentist_df())
+            # mse.append(association.create_mse_df())
+            # logp.append(association.create_logp_df())
+            
         self.f_association_df = pd.concat(freq)
         self.b_dic_df = pd.concat(dic)
         self.b_waic_df = pd.concat(waic)
