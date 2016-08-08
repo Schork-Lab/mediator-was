@@ -406,7 +406,7 @@ class Association(object):
         #                                    gwas_gen=self.genotype,
         #                                    gwas_phen=self.phenotype)
 
-        self.b_models = [ts_model, j_model]
+        #self.b_models = [ts_model, j_model]
         #self.b_traces = [ts_traces, j_traces]
         self.b_trace = [ts_trace, j_trace]
         self.b_stats = [ts_stats, j_stats]
