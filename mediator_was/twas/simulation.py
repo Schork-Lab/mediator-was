@@ -342,7 +342,7 @@ class Association(object):
         # self.kfolds = list(KFold(self.genotype.shape[0],
         #                         n_folds=k, random_state=seed))
         self.kfolds = list(ShuffleSplit(self.genotype.shape[0],
-                                        n_iter=1, test_size=0.3,
+                                        n_iter=1, test_size=0.2,
                                         random_state=seed))
         return
 
@@ -387,28 +387,38 @@ class Association(object):
         coef_mean = elasticnet[columns].mean(axis=0).values
         coef_sd = elasticnet[columns].std(axis=0, ddof=1).values
         ts_model = bay.TwoStage(coef_mean, coef_sd,
-                                variational=True)
-        ts_traces, ts_stats = ts_model.cross_validation(k_folds=self.kfolds,
-                                             gwas_gen=self.genotype[:,columns],
-                                             gwas_phen=self.phenotype)
-        j_model = bay.Joint(variational=True, mb=True)
-        j_traces, j_stats = j_model.cross_validation(k_folds=self.kfolds,
-                                           med_gen=gene.train_genotypes,
-                                           med_phen=gene.train_expression,
-                                           gwas_gen=self.genotype,
-                                           gwas_phen=self.phenotype)
+                                variational=True, n_chain=50000)
+        ts_trace = ts_model.run(gwas_gen=self.genotype[:, columns],
+                           gwas_phen=self.phenotype)
+        ts_stats = ts_model.calculate_ppc(ts_trace)
+        # ts_traces, ts_stats = ts_model.cross_validation(k_folds=self.kfolds,
+        #                                      gwas_gen=self.genotype[:,columns],
+        #                                      gwas_phen=self.phenotype)
+        j_model = bay.Joint(variational=True, mb=True, n_chain=50000)
+        j_trace = j_model.run(med_gen=gene.train_genotypes,
+                              med_phen=gene.train_expression,
+                              gwas_gen=self.genotype,
+                              gwas_phen=self.phenotype)
+        j_stats = j_model.calculate_ppc(j_trace)
+        # j_traces, j_stats = j_model.cross_validation(k_folds=self.kfolds,
+        #                                    med_gen=gene.train_genotypes,
+        #                                    med_phen=gene.train_expression,
+        #                                    gwas_gen=self.genotype,
+        #                                    gwas_phen=self.phenotype)
 
-        self.b_traces = [ts_traces, j_traces]
+        self.b_models = [ts_model, j_model]
+        #self.b_traces = [ts_traces, j_traces]
+        self.b_trace = [ts_trace, j_trace]
         self.b_stats = [ts_stats, j_stats]
-        models = ['Two Stage', 'Joint']
-        self.b_mse = dict((model, np.mean([x['mse'] for x in stats]))
-                          for model, stats in zip(models,
-                                                  self.b_stats)
-                          )
-        self.b_logp = dict((model, np.sum([x['logp'] for x in stats]))
-                           for model, stats in zip(models,
-                                                   self.b_stats)
-                           )
+        # models = ['Two Stage', 'Joint']
+        # self.b_mse = dict((model, np.mean([x['mse'] for x in stats]))
+        #                   for model, stats in zip(models,
+        #                                           self.b_stats)
+        #                   )
+        # self.b_logp = dict((model, np.sum([x['logp'] for x in stats]))
+        #                    for model, stats in zip(models,
+        #                                            self.b_stats)
+        #                    )
         return
 
     def create_frequentist_df(self):

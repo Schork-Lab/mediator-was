@@ -8,6 +8,76 @@ from scipy.stats import norm
 import pymc3 as pm
 import numpy as np
 from theano import shared
+from scipy.stats.distributions import pareto
+
+
+
+def waic(trace, model=None, r_logp=True):
+    """
+    Calculate the widely available information criterion and the effective number of parameters of the samples in trace from model.
+    Read more theory here - in a paper by some of the leading authorities on Model Selection - http://bit.ly/1W2YJ7c
+    """
+    
+    log_py = log_post_trace(trace, model)
+
+    lppd =  np.sum(np.log(np.mean(np.exp(log_py), axis=0)))
+        
+    p_waic = np.sum(np.var(log_py, axis=0))
+    
+    if r_logp:
+        return -2 * lppd + 2 * p_waic, log_py, lppd    
+    else:
+        return -2 * lppd + 2 * p_waic
+
+
+def loo(trace=None, model=None, log_py=None):
+    """
+    Calculates leave-one-out (LOO) cross-validation for out of sample predictive
+    model fit, following Vehtari et al. (2015). Cross-validation is computed using
+    Pareto-smoothed importance sampling (PSIS).
+    
+    Returns log pointwise predictive density calculated via approximated LOO cross-validation.
+    """
+    
+    if log_py is None:
+        log_py = log_post_trace(trace, model)
+    
+    # Importance ratios
+    r = 1./np.exp(log_py)
+    r_sorted = np.sort(r, axis=0)
+
+    # Extract largest 20% of importance ratios and fit generalized Pareto to each 
+    # (returns tuple with shape, location, scale)
+    q80 = int(len(log_py)*0.8)
+    pareto_fit = np.apply_along_axis(lambda x: pareto.fit(x, floc=0), 0, r_sorted[q80:])
+    
+    
+    # Calculate expected values of the order statistics of the fitted Pareto
+    S = len(r_sorted)
+    M = S - q80
+    z = (np.arange(M)+0.5)/M
+    expvals = map(lambda x: pareto.ppf(z, x[0], scale=x[2]), pareto_fit.T)
+    
+    # Replace importance ratios with order statistics of fitted Pareto
+    r_sorted[q80:] = np.vstack(expvals).T
+    # Unsort ratios (within columns) before using them as weights
+    r_new = np.array([r[np.argsort(i)] for r,i in zip(r_sorted, np.argsort(r, axis=0))])
+    
+    # Truncate weights to guarantee finite variance
+    w = np.minimum(r_new, r_new.mean(axis=0) * S**0.75)
+    
+    loo_lppd = np.sum(np.log(np.sum(w * np.exp(log_py), axis=0) / np.sum(w, axis=0)))
+    
+    return loo_lppd
+
+def log_post_trace(trace, model):
+    '''
+    Calculate the elementwise log-posterior for the sampled trace.
+    '''
+    logp = np.hstack([obs.logp_elemwise(pt) for pt in trace] for obs in model.observed_RVs if obs.__repr__() == 'phen')
+    if len(logp.shape) > 2:
+        logp = logp.squeeze(axis=1)
+    return logp
 
 
 class BayesianModel(object):
@@ -137,6 +207,8 @@ class BayesianModel(object):
                 trace = pm.sample(self.n_chain, step=pm.Metropolis(),
                                   start=start, progressbar=True)
                 trace = trace[-n_trace:]
+        self.v_params = v_params
+        self.trace = trace
         return trace
 
     def cross_validation(self, k_folds, **inputs):
@@ -170,6 +242,13 @@ class BayesianModel(object):
             self.cv_traces.append(trace)
             self.cv_stats.append(stats)
         return self.cv_traces, self.cv_stats
+
+    def calculate_ppc(self, trace):
+        stats = {}
+        stats['dic'] = pm.stats.dic(trace, self.cached_model)
+        stats['waic'], log_py, stats['logp'] = waic(trace, self.cached_model)
+        stats['loo'] = loo(log_py=log_py)
+        return stats
 
     def calculate_statistics(self, trace, **input_test):
         """
@@ -272,7 +351,7 @@ class BayesianModel(object):
         zscore = mean / sd
         return mean, sd, zscore
 
-    def _mb_generator(self, data, size=500):
+    def _mb_generator(self, data):
         """Summary
         
         Args:
@@ -284,7 +363,7 @@ class BayesianModel(object):
         """
         rng = np.random.RandomState(0)
         while True:
-            ixs = rng.randint(len(data), size=size)
+            ixs = rng.randint(len(data), size=500)
             yield data[ixs]
 
 
@@ -351,7 +430,7 @@ class Joint(BayesianModel):
     its effect on the phenotype.
 
     """
-    def __init__(self, tau_beta=10, lambda_beta=1, m_sigma_beta=10,
+    def __init__(self, tau_beta=1, lambda_beta=1, m_sigma_beta=10,
                  p_sigma_beta=10, *args, **kwargs):
         """
             Expression ~ N(X\beta, \sigma_exp)
@@ -396,6 +475,7 @@ class Joint(BayesianModel):
             lambda_beta = pm.HalfCauchy('lambda_beta',
                                         beta=self.vars['lambda_beta'],
                                         shape=(1, n_snps))
+            # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0, lam=1, shape=(1, n_snps))
             total_variance = pm.dot(lambda_beta * lambda_beta,
                                     tau_beta * tau_beta)
             beta_med = pm.Normal('beta_med',
@@ -410,7 +490,8 @@ class Joint(BayesianModel):
                                  sd=mediator_sigma,
                                  observed=med_phen)
             # Phenotype
-            alpha = pm.Normal('alpha', 0, 1)
+            # alpha = pm.Normal('alpha', 0, 1)
+            alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
