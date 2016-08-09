@@ -248,6 +248,7 @@ class BayesianModel(object):
         stats['dic'] = pm.stats.dic(trace, self.cached_model)
         stats['waic'], log_py, stats['logp'] = waic(trace, self.cached_model)
         stats['loo'] = loo(log_py=log_py)
+        stats['zscore'] = self._alpha_zscore(trace)
         return stats
 
     def calculate_statistics(self, trace, **input_test):
@@ -470,18 +471,19 @@ class Joint(BayesianModel):
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
-            tau_beta = pm.HalfCauchy('tau_beta',
-                                     beta=self.vars['tau_beta'])
-            lambda_beta = pm.HalfCauchy('lambda_beta',
-                                        beta=self.vars['lambda_beta'],
-                                        shape=(1, n_snps))
-            # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0, lam=1, shape=(1, n_snps))
-            total_variance = pm.dot(lambda_beta * lambda_beta,
-                                    tau_beta * tau_beta)
-            beta_med = pm.Normal('beta_med',
-                                 mu=0,
-                                 tau=1 / total_variance,
-                                 shape=(1, n_snps))
+            # tau_beta = pm.HalfCauchy('tau_beta',
+            #                          beta=self.vars['tau_beta'])
+            # lambda_beta = pm.HalfCauchy('lambda_beta',
+            #                             beta=self.vars['lambda_beta'],
+            #                             shape=(1, n_snps))
+            # # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0, lam=1, shape=(1, n_snps))
+            # total_variance = pm.dot(lambda_beta * lambda_beta,
+            #                         tau_beta * tau_beta)
+            # beta_med = pm.Normal('beta_med',
+            #                      mu=0,
+            #                      tau=1 / total_variance,
+            #                      shape=(1, n_snps))
+            beta_med = pm.Laplace('beta_med', mu=0, b=1, shape=(1, n_snps),)
             mediator_mu = pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
