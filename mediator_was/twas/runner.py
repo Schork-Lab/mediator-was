@@ -1,7 +1,7 @@
 
 import sys
 import pickle
-import mediator_was.twas.T as T
+import mediator_was.twas as T
 
 def associate(association_name, gene_dir, study_prefix, out_file):
     gene = T.Gene(gene_dir)
