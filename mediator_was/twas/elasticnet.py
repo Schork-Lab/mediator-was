@@ -8,6 +8,7 @@ from sklearn.linear_model import ElasticNetCV, ElasticNet
 from sklearn.utils import resample
 
 
+
 def create_coeff_df(model, allele_df):
     coef_df = pd.DataFrame(model.coef_[:allele_df.shape[1]],
                            columns=['beta'])
@@ -27,6 +28,7 @@ def fit_models(allele_df, phen_df, covariates_df,
     samples = list(set(phen_df.index).intersection(covariates_df.index))
     design = pd.concat([allele_df.ix[samples], covariates_df.ix[samples]],
                        axis=1)
+    design['constant'] = 1
     l1_ratio_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6,
                       0.7, 0.8, 0.9, 0.95, 0.99]
     full_model = ElasticNetCV(l1_ratio=l1_ratio_range, max_iter=10000)

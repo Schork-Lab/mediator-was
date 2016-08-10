@@ -9,6 +9,11 @@ import pymc3 as pm
 import numpy as np
 from theano import shared
 from scipy.stats.distributions import pareto
+import theano.tensor as t
+
+
+def tinvlogit(x):
+    return t.exp(x) / (1 + t.exp(x))
 
 
 def waic(trace, model=None, r_logp=True):
@@ -110,7 +115,7 @@ class BayesianModel(object):
         variational (TYPE): Description
     '''
 
-    def __init__(self, variational=True, mb=False, n_chain=50000):
+    def __init__(self, variational=True, mb=False, n_chain=50000, logistic=False):
         """
         Args:
             variational (bool, optional): Use Variational Inference
@@ -120,6 +125,7 @@ class BayesianModel(object):
         self.cached_model = None
         self.mb = mb
         self.n_chain = n_chain
+        self.logistic = logistic
 
     def cache_model(self, **inputs):
         """
@@ -214,12 +220,12 @@ class BayesianModel(object):
                 else:
                     v_params = pm.variational.advi(n=self.n_chain)
                 trace = pm.variational.sample_vp(v_params, draws=n_trace)
+                self.v_params = v_params
             else:
                 start = pm.find_MAP()
                 trace = pm.sample(self.n_chain, step=pm.Metropolis(),
                                   start=start, progressbar=True)
                 trace = trace[-n_trace:]
-        self.v_params = v_params
         self.trace = trace
         return trace
 
@@ -417,20 +423,25 @@ class TwoStage(BayesianModel):
         Returns:
             pymc3.Model(): The Bayesian model
         """
-        n_snps = gwas_gen.eval().shape[1]
+        n_ind, n_snps = gwas_gen.eval().shape
         with pm.Model() as phenotype_model:
             beta_med = pm.Normal('beta_med',
                                  mu=self.vars['coef_mean'],
                                  sd=self.vars['coef_sd'],
                                  shape=(1, n_snps))
-            alpha = pm.Normal('alpha', 0, 1)
+            alpha = pm.Normal('alpha', mu=0, sd=1)
             mu = pm.dot(beta_med, gwas_gen.T)
-            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
-                                            beta=self.vars['p_sigma_beta'])
-            phen = pm.Normal('phen',
-                             mu=alpha * mu,
-                             sd=phenotype_sigma,
-                             observed=gwas_phen)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            if self.logistic:
+                p = tinvlogit(intercept + alpha * mu)
+                phen = pm.Bernoulli('phen', p=p, observed=gwas_phen)
+            else:
+                phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                beta=self.vars['p_sigma_beta'])
+                phen = pm.Normal('phen',
+                                 mu=intercept + alpha * mu,
+                                 sd=phenotype_sigma,
+                                 observed=gwas_phen)
         if self.variational and self.mb:
             self.minibatch_RVs = [phen]
             self.minibatch_tensors = [gwas_gen, gwas_phen]
@@ -499,12 +510,13 @@ class Joint(BayesianModel):
                                  sd=mediator_sigma,
                                  observed=med_phen)
             # Phenotype
-            # alpha = pm.Normal('alpha', 0, 1)
-            alpha = pm.Uniform('alpha', -10, 10)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Normal('alpha', 0, 1)
+            # alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            phenotype_mu = alpha * phenotype_expression_mu
+            phenotype_mu = intercept + alpha * phenotype_expression_mu
             phen = pm.Normal('phen',
                              mu=phenotype_mu,
                              sd=phenotype_sigma,
@@ -542,11 +554,12 @@ class Joint(BayesianModel):
                                  observed=med_phen)
             # Phenotype
             # alpha = pm.Normal('alpha', 0, 1)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
             alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            phenotype_mu = alpha * phenotype_expression_mu
+            phenotype_mu = intercept + alpha * phenotype_expression_mu
             phen = pm.Normal('phen',
                              mu=phenotype_mu,
                              sd=phenotype_sigma,
@@ -582,12 +595,13 @@ class Joint(BayesianModel):
                                  sd=mediator_sigma,
                                  observed=med_phen)
             # Phenotype
-            # alpha = pm.Normal('alpha', 0, 1)
-            alpha = pm.Uniform('alpha', -10, 10)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Normal('alpha', 0, 1)
+            # alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            phenotype_mu = alpha * phenotype_expression_mu
+            phenotype_mu = intercept + alpha * phenotype_expression_mu
             phen = pm.Normal('phen',
                              mu=phenotype_mu,
                              sd=phenotype_sigma,

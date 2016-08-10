@@ -216,6 +216,11 @@ class Study():
             chrom = fn.split('.')[-2]
             df = pd.read_table(fn, index_col=0, names=['phen'])
             self.phen[chrom] = df.ix[self.samples]
+        # self.case_control = pd.read_table(phen_prefix_path + '.fam',
+        #                                   names=['fam', 'id', '1', '2', '3', 'phen'],
+        #                                   sep='\t')
+        # self.case_control.index = self.case_control['fam']+'_'+self.case_control['id']
+        # self.case_control = self.case_control.ix[self.samples]['phen']
         return
 
     def get_alleles(self, chrom, position, ref=None, alt=None):
@@ -316,6 +321,7 @@ class Association():
         """
         self.gwas_phen = study.phen[gene.chromosome]['phen']
         self.gtex_phen = gene.expression
+        #self.gwas_case_control = study.case_control
         return
 
     def _predict_expression(self, gene):
@@ -389,8 +395,18 @@ class Association():
 
         coefs = self.elasticnet[self.elasticnet['id'].isin(self.included_snps)]
         coefs = coefs[~coefs['bootstrap'].isin(['full', 'twostage'])]
-        coef_mean = coefs.groupby('id')['beta'].mean().values,
+        coef_mean = coefs.groupby('id')['beta'].mean().values
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
+
+
+        # ts_model = bay.TwoStage(coef_mean, coef_sd,
+        #                         variational=True, n_chain=100000,
+        #                         logistic=False)
+        # ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
+        #                         gwas_phen=self.gwas_phen.values)
+        # ts_stats = ts_model.calculate_ppc(ts_trace)
+        # self.b_stats = ts_stats
+        # self.b_trace = ts_trace
 
         ts_model = bay.TwoStage(coef_mean, coef_sd,
                                 variational=True, mb=True, n_chain=100000)
