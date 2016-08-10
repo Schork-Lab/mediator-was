@@ -3,7 +3,7 @@ import sys
 import pickle
 import mediator_was.twas as T
 
-def associate(association_name, gene_dir, study_prefix, out_file):
+def associate(gene_dir, study_prefix, out_file):
     gene = T.Gene(gene_dir)
     study = T.Study(study_prefix)
     association = T.Association(gene, study)
@@ -30,8 +30,8 @@ if __name__ == "__main__":
         print("python runner.py power association_dir out_file")
     else:
         if sys.argv[1] == "associate":
-            print('Associating {} to {}'.format(sys.argv[3], sys.argv[4]))
-            associate(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+            print('Associating {} to {}'.format(sys.argv[2], sys.argv[3]))
+            associate(sys.argv[2], sys.argv[3], sys.argv[4])
         elif sys.argv[1] == "power":
             print('Running power for {}'.format(sys.argv[2]))
             power(sys.argv[2], sys.argv[3])
