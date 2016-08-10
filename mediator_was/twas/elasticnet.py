@@ -21,10 +21,10 @@ def create_coeff_df(model, allele_df):
 
 
 def fit_models(allele_df, phen_df, covariates_df,
-               n_samples=300, n_bootstraps=50,):
+               n_samples=300, n_bootstraps=5,):
     coef_dfs = []
     covariates_df = covariates_df.dropna()
-    samples = set(phen_df.index).intersection(covariates_df.index)
+    samples = list(set(phen_df.index).intersection(covariates_df.index))
     design = pd.concat([allele_df.ix[samples], covariates_df.ix[samples]],
                        axis=1)
     l1_ratio_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6,

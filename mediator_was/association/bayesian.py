@@ -11,70 +11,82 @@ from theano import shared
 from scipy.stats.distributions import pareto
 
 
-
 def waic(trace, model=None, r_logp=True):
     """
-    Calculate the widely available information criterion and the effective number of parameters of the samples in trace from model.
-    Read more theory here - in a paper by some of the leading authorities on Model Selection - http://bit.ly/1W2YJ7c
-    """
-    
-    log_py = log_post_trace(trace, model)
+    Taken directly from PyMC3.
+    Reproduced to only take into account the phenotype and not mediator
+    variable when calculating logp.
 
-    lppd =  np.sum(np.log(np.mean(np.exp(log_py), axis=0)))
-        
+    Calculate the widely available information criterion and the effective
+    number of parameters of the samples in trace from model.
+
+    Read more theory here - in a paper by some of the
+    leading authorities on Model Selection - http://bit.ly/1W2YJ7c
+    """
+    log_py = log_post_trace(trace, model)
+    lppd = np.sum(np.log(np.mean(np.exp(log_py), axis=0)))
     p_waic = np.sum(np.var(log_py, axis=0))
-    
     if r_logp:
-        return -2 * lppd + 2 * p_waic, log_py, lppd    
+        return -2 * lppd + 2 * p_waic, log_py, lppd
     else:
         return -2 * lppd + 2 * p_waic
 
 
 def loo(trace=None, model=None, log_py=None):
     """
-    Calculates leave-one-out (LOO) cross-validation for out of sample predictive
-    model fit, following Vehtari et al. (2015). Cross-validation is computed using
-    Pareto-smoothed importance sampling (PSIS).
-    
-    Returns log pointwise predictive density calculated via approximated LOO cross-validation.
+    Taken directly from PyMC3.
+    Reproduced to only take into account the phenotype and not mediator
+    variable when calculating logp.
+
+    Calculates leave-one-out (LOO) cross-validation for out of sample
+    predictive model fit, following Vehtari et al. (2015).
+    Cross-validation is computed using Pareto-smoothed importance sampling.
+
+    Returns log pointwise predictive density calculated via
+    approximated LOO cross-validation.
     """
-    
     if log_py is None:
         log_py = log_post_trace(trace, model)
-    
     # Importance ratios
-    r = 1./np.exp(log_py)
+    r = 1. / np.exp(log_py)
     r_sorted = np.sort(r, axis=0)
 
-    # Extract largest 20% of importance ratios and fit generalized Pareto to each 
+    # Extract largest 20% of importance ratios and
+    # fit generalized Pareto to each
     # (returns tuple with shape, location, scale)
-    q80 = int(len(log_py)*0.8)
-    pareto_fit = np.apply_along_axis(lambda x: pareto.fit(x, floc=0), 0, r_sorted[q80:])
-    
-    
+    q80 = int(len(log_py) * 0.8)
+    pareto_fit = np.apply_along_axis(lambda x: pareto.fit(x, floc=0),
+                                     0, r_sorted[q80:])
     # Calculate expected values of the order statistics of the fitted Pareto
     S = len(r_sorted)
     M = S - q80
-    z = (np.arange(M)+0.5)/M
+    z = (np.arange(M) + 0.5) / M
     expvals = map(lambda x: pareto.ppf(z, x[0], scale=x[2]), pareto_fit.T)
-    
+
     # Replace importance ratios with order statistics of fitted Pareto
     r_sorted[q80:] = np.vstack(expvals).T
     # Unsort ratios (within columns) before using them as weights
-    r_new = np.array([r[np.argsort(i)] for r,i in zip(r_sorted, np.argsort(r, axis=0))])
-    
+    r_new = np.array([x[np.argsort(i)]
+                     for x, i in zip(r_sorted,
+                                     np.argsort(r, axis=0))])
+
     # Truncate weights to guarantee finite variance
     w = np.minimum(r_new, r_new.mean(axis=0) * S**0.75)
-    
     loo_lppd = np.sum(np.log(np.sum(w * np.exp(log_py), axis=0) / np.sum(w, axis=0)))
-    
+
     return loo_lppd
+
 
 def log_post_trace(trace, model):
     '''
+    Taken directly from PyMC3.
+    Reproduced to only take into account the phenotype and not mediator
+    variable when calculating logp.
+
     Calculate the elementwise log-posterior for the sampled trace.
     '''
-    logp = np.hstack([obs.logp_elemwise(pt) for pt in trace] for obs in model.observed_RVs if obs.__repr__() == 'phen')
+    logp = np.hstack([obs.logp_elemwise(pt) for pt in trace]
+                     for obs in model.observed_RVs if obs.__repr__() == 'phen')
     if len(logp.shape) > 2:
         logp = logp.squeeze(axis=1)
     return logp
@@ -431,7 +443,8 @@ class Joint(BayesianModel):
     its effect on the phenotype.
 
     """
-    def __init__(self, tau_beta=1, lambda_beta=1, m_sigma_beta=10,
+    def __init__(self, model_type='laplace', coef_sd=None, coef_mean=None,
+                 tau_beta=1, lambda_beta=1, m_sigma_beta=10,
                  p_sigma_beta=10, *args, **kwargs):
         """
             Expression ~ N(X\beta, \sigma_exp)
@@ -448,16 +461,105 @@ class Joint(BayesianModel):
 
         """
         self.name = 'Joint'
+        self.model_type = model_type
         self.cv_vars = ['gwas_phen', 'gwas_gen']
-        self.vars = {'tau_beta': tau_beta,
+        self.vars = {'coef_mean': coef_mean,
+                     'coef_sd': coef_sd,
+                     'tau_beta': tau_beta,
                      'lambda_beta': lambda_beta,
                      'm_sigma_beta': m_sigma_beta,
                      'p_sigma_beta': p_sigma_beta
                      }
+        if model_type == 'laplace':
+            self.create_model = self._create_model_laplace
+        elif model_type == 'horseshoe':
+            self.create_model = self._create_model_horseshoe
+        elif model_type == 'prior':
+            # assert((coef_sd is not None) and (coef_mean is not None),
+            #        'Must provided coef_mean and coef_sd if using prior')
+            self.create_model = self._create_model_prior
+        else:
+            raise NotImplementedError('Unsupported model type')
         super(Joint, self).__init__(*args, **kwargs)
 
-    def create_model(self, med_gen, med_phen,
-                     gwas_gen, gwas_phen):
+    def _create_model_prior(self, med_gen, med_phen,
+                            gwas_gen, gwas_phen):
+        n_snps = gwas_gen.eval().shape[1]
+        with pm.Model() as phenotype_model:
+            # Expression
+            beta_med = pm.Normal('beta_med',
+                                 mu=self.vars['coef_mean'],
+                                 sd=self.vars['coef_sd'],
+                                 shape=(1, n_snps))
+            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_sigma = pm.HalfCauchy('mediator_sigma',
+                                           beta=self.vars['m_sigma_beta'])
+            mediator = pm.Normal('mediator',
+                                 mu=mediator_mu,
+                                 sd=mediator_sigma,
+                                 observed=med_phen)
+            # Phenotype
+            # alpha = pm.Normal('alpha', 0, 1)
+            alpha = pm.Uniform('alpha', -10, 10)
+            phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                            beta=self.vars['p_sigma_beta'])
+            phenotype_mu = alpha * phenotype_expression_mu
+            phen = pm.Normal('phen',
+                             mu=phenotype_mu,
+                             sd=phenotype_sigma,
+                             observed=gwas_phen)
+
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+
+        return phenotype_model
+
+    def _create_model_horseshoe(self, med_gen, med_phen,
+                                gwas_gen, gwas_phen):
+        n_snps = gwas_gen.eval().shape[1]
+        with pm.Model() as phenotype_model:
+            # Expression
+            tau_beta = pm.HalfCauchy('tau_beta',
+                                     beta=self.vars['tau_beta'])
+            lambda_beta = pm.HalfCauchy('lambda_beta',
+                                        beta=self.vars['lambda_beta'],
+                                        shape=(1, n_snps))
+            # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0, lam=1, shape=(1, n_snps))
+            total_variance = pm.dot(lambda_beta * lambda_beta,
+                                    tau_beta * tau_beta)
+            beta_med = pm.Normal('beta_med',
+                                 mu=0,
+                                 tau=1 / total_variance,
+                                 shape=(1, n_snps))
+            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_sigma = pm.HalfCauchy('mediator_sigma',
+                                           beta=self.vars['m_sigma_beta'])
+            mediator = pm.Normal('mediator',
+                                 mu=mediator_mu,
+                                 sd=mediator_sigma,
+                                 observed=med_phen)
+            # Phenotype
+            # alpha = pm.Normal('alpha', 0, 1)
+            alpha = pm.Uniform('alpha', -10, 10)
+            phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                            beta=self.vars['p_sigma_beta'])
+            phenotype_mu = alpha * phenotype_expression_mu
+            phen = pm.Normal('phen',
+                             mu=phenotype_mu,
+                             sd=phenotype_sigma,
+                             observed=gwas_phen)
+
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+
+        return phenotype_model
+
+    def _create_model_laplace(self, med_gen, med_phen,
+                              gwas_gen, gwas_phen):
         """
         Args:
             med_gen (pandas.DataFrame): Mediator genotypes
@@ -471,18 +573,6 @@ class Joint(BayesianModel):
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
-            # tau_beta = pm.HalfCauchy('tau_beta',
-            #                          beta=self.vars['tau_beta'])
-            # lambda_beta = pm.HalfCauchy('lambda_beta',
-            #                             beta=self.vars['lambda_beta'],
-            #                             shape=(1, n_snps))
-            # # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0, lam=1, shape=(1, n_snps))
-            # total_variance = pm.dot(lambda_beta * lambda_beta,
-            #                         tau_beta * tau_beta)
-            # beta_med = pm.Normal('beta_med',
-            #                      mu=0,
-            #                      tau=1 / total_variance,
-            #                      shape=(1, n_snps))
             beta_med = pm.Laplace('beta_med', mu=0, b=1, shape=(1, n_snps),)
             mediator_mu = pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
