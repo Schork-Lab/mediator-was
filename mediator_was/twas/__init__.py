@@ -52,12 +52,14 @@ class Gene():
         """
         self.main_dir = main_dir
         self.name = os.path.basename(main_dir)
+        self.gtex = gtex
         self.chromosome = main_dir.split('/')[-2]  # Assumes no trailing /
-        self.load_data(gtex)
-        self.elasticnet = self._twostage_train()
+        self._load_data()
+        self._retrain()
+        self._save()
         return
 
-    def load_data(self, gtex=True):
+    def _load_data(self):
         """
         Load processed data from scripts/train_gtex_EN.py. Optionally
         load gtex expression fitted data or rlog transformed fitted data.
@@ -70,13 +72,25 @@ class Gene():
         self.alleles = self._load_gtex_alleles()
         self.loci = self._load_gtex_loci()
         self.alleles.columns = self.loci.index
-        if gtex:
+        if self.gtex:
             data = self._load_gtex_expression()
         else:
             data = self._load_rlog_expression()
         self.expression, self.covariates, self.elasticnet = data
         self.samples = self.expression.index
         self.alleles = self.alleles.ix[self.samples]
+        return
+
+    def _retrain(self, twostage=True):
+        if self.elasticnet is None:
+            self.elasticnet, self.alpha, self.l1_ratio = fit_models(self.alleles,
+                                                                    self.expression,
+                                                                    self.covariates)
+            self.elasticnet['gene'] = self.name
+        if twostage:
+            if 'twostage' not in self.elasticnet.bootstrap.unique():
+                self.elasticnet = self._twostage_train()
+
         return
 
     def _twostage_train(self, min_p_inclusion=0.5):
@@ -93,6 +107,22 @@ class Gene():
         elasticnet = pd.concat([self.elasticnet, ts_model])
         return elasticnet
 
+    def _save(self):
+        if self.gtex:
+            label = "gtex_normalized"
+        else:
+            label = "rlog"
+        fn = os.path.join(self.main_dir,
+                          "{}.{}.elasticnet.tsv".format(self.name, label))
+        self.elasticnet.to_csv(fn, sep='\t', index=False)
+
+        if hasattr(self, 'alpha'):
+            param_fn = os.path.join(self.main_dir,
+                                    "{}.{}.params.txt".format(self.name, label))
+            with open(param_fn, "w") as OUT:
+                OUT.write("L1 ratio: {} \n".format(self.alpha))
+                OUT.write("Alpha: {} \n".format(self.l1_ratio))
+        return
 
     def _load_gtex_alleles(self):
         alleles_file = os.path.join(self.main_dir,
@@ -116,7 +146,11 @@ class Gene():
                                     ".elasticnet.tsv")
         phen_df = pd.read_table(gtex_file, sep='\t', index_col=0)
         covariates_df = pd.read_table(covariates_file, sep='\t', index_col=0)
-        en_df = pd.read_table(en_file, sep='\t')
+        try:
+            en_df = pd.read_table(en_file, sep='\t')
+        except OSError:
+            en_df = None
+
         return phen_df, covariates_df, en_df
 
     def _load_rlog_expression(self):
@@ -128,7 +162,10 @@ class Gene():
                                     ".elasticnet.tsv")
         phen_df = pd.read_table(rlog_file, sep='\t', index_col=0)
         covariates_df = pd.read_table(covariates_file, sep='\t', index_col=0)
-        en_df = pd.read_table(en_file, sep='\t')
+        try:
+            en_df = pd.read_table(en_file, sep='\t')
+        except OSError:
+            en_df = None
         return phen_df, covariates_df, en_df
 
 
@@ -153,8 +190,9 @@ class Study():
         self.name = os.path.basename(study_path_prefix)
         vcf_path = study_path_prefix + '.vcf.gz'
         self.vcf = pysam.VariantFile(vcf_path)
-        self.samples = list(map(lambda x: x.split('_')[0],
-                            self.vcf.header.samples))
+        # self.samples = list(map(lambda x: x.split('_')[0],
+        #                     self.vcf.header.samples))
+        self.samples = list(self.vcf.header.samples)
         self._load_phenotypes(study_path_prefix)
         return
 
@@ -325,7 +363,7 @@ class Association():
         """
 
         self._frequentist(self.pred_expr)
-        if (self.f_df['pvalue'] < 0.2).any():
+        if (self.f_df['pvalue'] < 0.25).any():
             print(self.f_df)
             self._bayesian()
         else:
@@ -334,10 +372,12 @@ class Association():
 
     def _bayesian(self):
         """
-        Fit two different Bayesian Linear Regressions
+        Fit three different Bayesian Linear Regressions using
+        only SNPS filtered using ElasticNet.
 
-        1. Hybrid Bayesian Regression (Two-stage)
-        2. Joint Bayesian Linear Regression
+        1. Simple Bayesian Regression (Using EN Priors)
+        2. Joint Bayesian Linear Regression (LaPlace)
+        3. Joint Bayesian Linear Regression (Using EN Priors)
 
         Returns:
             dict: Bayesian Statistics
@@ -352,19 +392,32 @@ class Association():
         coef_mean = coefs.groupby('id')['beta'].mean().values,
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
 
-        ts_model = bay.TwoStage(coef_mean, coef_sd, variational=True)
+        ts_model = bay.TwoStage(coef_mean, coef_sd,
+                                variational=True, mb=True, n_chain=100000)
         ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
                                 gwas_phen=self.gwas_phen.values)
         ts_stats = ts_model.calculate_ppc(ts_trace)
 
-        j_model = bay.Joint(variational=True, mb=True, n_chain=50000)
+        j_model = bay.Joint(model_type='laplace',
+                            variational=True, mb=True, n_chain=100000)
         j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
                               med_phen=self.gtex_phen.values.ravel(),
                               gwas_gen=self.gwas_gen[self.included_snps].values,
                               gwas_phen=self.gwas_phen.values)
         j_stats = j_model.calculate_ppc(j_trace)
-        self.b_traces = [ts_trace, j_trace]
-        self.b_stats = [j_trace, j_stats]
+
+        j_model2 = bay.Joint(model_type='prior',
+                             coef_mean=coef_mean,
+                             coef_sd=coef_sd,
+                             variational=True, mb=True, n_chain=100000)
+        j_trace2 = j_model2.run(med_gen=self.gtex_gen[self.included_snps].values,
+                               med_phen=self.gtex_phen.values.ravel(),
+                               gwas_gen=self.gwas_gen[self.included_snps].values,
+                               gwas_phen=self.gwas_phen.values)
+        j_stats2 = j_model2.calculate_ppc(j_trace2)
+
+        self.b_traces = [ts_trace, j_trace, j_trace2]
+        self.b_stats = [ts_stats, j_stats, j_stats2]
         return
 
     def _frequentist(self, pred_expr):
@@ -379,18 +432,25 @@ class Association():
         bootstraps = [column for column in pred_expr.columns
                       if column not in ('full', 'twostage')]
         phen = self.gwas_phen.values
-        full_expr = pred_expr['full']
-        ts_expr = pred_expr['twostage']
+        try:
+            full_expr = pred_expr['full']
+        except KeyError:
+            full_expr = np.zeros(shape=phen.shape)
+        try:
+            ts_expr = pred_expr['twostage']
+        except KeyError:
+            ts_expr = np.zeros(shape=phen.shape)
         bootstrap_expr = pred_expr[bootstraps]
         mean_expr = bootstrap_expr.mean(axis=1)
-        sigma_ui = bootstrap_expr.var(ddof=1, axis=0)
+        sigma_ui = bootstrap_expr.var(ddof=1, axis=1)
 
         association = {'OLS-Full': t(full_expr, phen, method="OLS"),
                        'OLS-TwoStage': t(ts_expr, phen, method="OLS"),
                        'OLS-Mean': t(mean_expr, phen,
                                      method="OLS"),
                        'RC-hetero-bootstrapped': t(mean_expr, phen,
-                                                   sigma_ui),
+                                                   sigma_ui,
+                                                   method='rc-hetero'),
                        'MI-Bootstrapped': multiple_imputation(bootstrap_expr.T,
                                                               phen),
                        }
