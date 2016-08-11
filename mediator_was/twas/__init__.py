@@ -314,7 +314,7 @@ class Association():
         self._load_phenotypes(gene, study)
         #self._generate_kfolds()
         self._predict_expression(gene)
-        # self._associate()
+        self._associate()
 
         return
 
@@ -399,6 +399,8 @@ class Association():
         """
         intra_var = self.pred_expr.mean(axis=1).var(ddof=1)
         inter_var = self.pred_expr.var(axis=1, ddof=1).mean()
+        print('Intra-variance: {}'.format(intra_var))
+        print('Inter-variance: {}'.format(inter_var))
         if intra_var > inter_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
@@ -500,10 +502,12 @@ class Association():
         return
 
     def save(self, file_prefix):
-        f_df = pd.DataFrame.from_dict(self.f_stats, orient='index')
-        f_df.columns = ['coeff', 'se', 'pvalue']
-        f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
-                                                f_df.index])
-        f_df.to_csv(file_prefix+'.fstats.tsv', sep='\t')
-        b_df = pd.DataFrame(self.b_stats).T
-        b_df.to_csv(file_prefix+'.bstats.tsv', sep='\t')
+        if self.f_stats is not None:
+            f_df = pd.DataFrame.from_dict(self.f_stats, orient='index')
+            f_df.columns = ['coeff', 'se', 'pvalue']
+            f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
+                                                    f_df.index])
+            f_df.to_csv(file_prefix+'.fstats.tsv', sep='\t')
+        if self.b_stats is not None:
+            b_df = pd.DataFrame(self.b_stats).T
+            b_df.to_csv(file_prefix+'.bstats.tsv', sep='\t')
