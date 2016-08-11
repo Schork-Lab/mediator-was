@@ -16,7 +16,7 @@ def tinvlogit(x):
     return t.exp(x) / (1 + t.exp(x))
 
 
-def waic(trace, model=None, r_logp=True):
+def calculate_waic(trace, model=None, r_logp=True):
     """
     Taken directly from PyMC3.
     Reproduced to only take into account the phenotype and not mediator
@@ -37,7 +37,7 @@ def waic(trace, model=None, r_logp=True):
         return -2 * lppd + 2 * p_waic
 
 
-def loo(trace=None, model=None, log_py=None):
+def calculate_loo(trace=None, model=None, log_py=None):
     """
     Taken directly from PyMC3.
     Reproduced to only take into account the phenotype and not mediator
@@ -115,7 +115,8 @@ class BayesianModel(object):
         variational (TYPE): Description
     '''
 
-    def __init__(self, variational=True, mb=False, n_chain=50000, logistic=False):
+    def __init__(self, variational=True, mb=False, n_chain=50000,
+                 logistic=False):
         """
         Args:
             variational (bool, optional): Use Variational Inference
@@ -262,12 +263,17 @@ class BayesianModel(object):
         return self.cv_traces, self.cv_stats
 
     def calculate_ppc(self, trace):
-        stats = {}
-        stats['dic'] = pm.stats.dic(trace, self.cached_model)
-        stats['waic'], log_py, stats['logp'] = waic(trace, self.cached_model)
-        stats['loo'] = loo(log_py=log_py)
-        stats['zscore'] = self._alpha_zscore(trace)
-        return stats
+        dic = pm.stats.dic(trace, self.cached_model)
+        waic, log_py, logp = calculate_waic(trace, self.cached_model)
+        loo = calculate_loo(log_py=log_py)
+        mu, sd, zscore = self._alpha_stats(trace)
+        return {'dic': dic,
+                'waic': waic,
+                'logp': logp,
+                'loo': loo,
+                'mu': mu,
+                'sd': sd,
+                'zscore': zscore}
 
     def calculate_statistics(self, trace, **input_test):
         """
@@ -283,10 +289,12 @@ class BayesianModel(object):
         mc_logp = self._logp(trace, **inputs)
         mean_mse = self._mse(trace, **inputs)
         mse2 = self._mse2(trace, **inputs)
-        zscore = self._alpha_zscore(trace)
+        mu, sd, zscore = self._alpha_stats(trace)
         return {'logp': mc_logp,
                 'mse': mean_mse,
                 'mse2': mse2,
+                'mu': mu,
+                'sd': sd,
                 'zscore': zscore}
 
     def _logp(self, trace, **inputs):
@@ -356,14 +364,10 @@ class BayesianModel(object):
         mse = np.mean((inputs['gwas_phen'] - phen_pred) ** 2)
         return mse
 
-    def _alpha_zscore(self, trace):
-        """Summary
-        
-        Args:
-            model (TYPE): Description
-        
-        Returns:
-            TYPE: Description
+    def _alpha_stats(self, trace):
+        """
+        Calculate statistics of the alpha value in
+        the trace.
         """
         mean = np.mean(trace['alpha'])
         sd = np.std(trace['alpha'], ddof=1)
@@ -371,14 +375,8 @@ class BayesianModel(object):
         return mean, sd, zscore
 
     def _mb_generator(self, data):
-        """Summary
-        
-        Args:
-            data (TYPE): Description
-            size (int, optional): Description
-        
-        Returns:
-            TYPE: Description
+        """
+        Generator for minibatches
         """
         rng = np.random.RandomState(0)
         while True:
@@ -411,7 +409,6 @@ class TwoStage(BayesianModel):
                      'p_sigma_beta': p_sigma_beta}
         super(TwoStage, self).__init__(*args, **kwargs)
 
-
     def create_model(self, gwas_gen, gwas_phen):
         """
         Simple Bayesian Linear Regression
@@ -429,17 +426,18 @@ class TwoStage(BayesianModel):
                                  mu=self.vars['coef_mean'],
                                  sd=self.vars['coef_sd'],
                                  shape=(1, n_snps))
-            alpha = pm.Normal('alpha', mu=0, sd=1)
-            mu = pm.dot(beta_med, gwas_gen.T)
+            phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Normal('alpha', mu=0, sd=1)
+            phenotype_mu = intercept + alpha * phenotype_expression_mu
             if self.logistic:
-                p = tinvlogit(intercept + alpha * mu)
+                p = tinvlogit(phenotype_mu)
                 phen = pm.Bernoulli('phen', p=p, observed=gwas_phen)
             else:
                 phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                 beta=self.vars['p_sigma_beta'])
                 phen = pm.Normal('phen',
-                                 mu=intercept + alpha * mu,
+                                 mu=phenotype_mu,
                                  sd=phenotype_sigma,
                                  observed=gwas_phen)
         if self.variational and self.mb:
@@ -538,7 +536,8 @@ class Joint(BayesianModel):
             lambda_beta = pm.HalfCauchy('lambda_beta',
                                         beta=self.vars['lambda_beta'],
                                         shape=(1, n_snps))
-            # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0, lam=1, shape=(1, n_snps))
+            # lambda_beta = pm.StudentT('lambda_beta', nu=3, mu=0,
+            #                           lam=1, shape=(1, n_snps))
             total_variance = pm.dot(lambda_beta * lambda_beta,
                                     tau_beta * tau_beta)
             beta_med = pm.Normal('beta_med',
@@ -553,9 +552,8 @@ class Joint(BayesianModel):
                                  sd=mediator_sigma,
                                  observed=med_phen)
             # Phenotype
-            # alpha = pm.Normal('alpha', 0, 1)
+            alpha = pm.Normal('alpha', 0, 1)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])

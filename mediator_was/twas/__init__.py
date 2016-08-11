@@ -18,6 +18,7 @@ from mediator_was.association.frequentist import *
 import mediator_was.association.bayesian as bay
 from mediator_was.twas.elasticnet import fit_models
 
+
 class Gene():
     """
     TWAS mediator, which contains expression of a gene and
@@ -239,17 +240,28 @@ class Study():
             alt (None, optional): alternate allele
 
         Returns:
-            LIST: number of alt alleles per sample
+            LIST: number of alt alleles per sample, nan if not found
         '''
         try:
             record = next(self.vcf.fetch(str(chrom),
                                          int(position) - 1,
                                          int(position)))
-            if ref and alt:
-                if record.alleles[0] != ref or record.alleles[1] != alt:
-                    raise
             alleles = [np.sum([1 if y == 1 else 0 for y in x.values()[0]])
                        for x in record.samples.values()]
+            if ref and alt:
+                # Matches ref and alt
+                if (record.alleles[0] == ref) and (record.alleles[1] == alt):
+                    print(chrom, position, ref, alt, record.alleles)
+                    pass
+                # Switched reference and alt
+                elif (record.alleles[0] == alt) and (record.alleles[1] == ref):
+                    print('Switching ref, alt at {}:{}'.format(chrom, position))
+                    alleles = [2 - x for x in alleles]
+                # Not matching ref and alt
+                else:
+                    print('Not matching ref, alt at {}:{}'.format(chrom, position))
+
+                    raise
         except:
             alleles = np.nan
         return alleles
@@ -282,7 +294,7 @@ class Association():
         self.min_p_inclusion = min_p_inclusion
         self._load_genotypes(gene, study)
         self._load_phenotypes(gene, study)
-        self._generate_kfolds()
+        #self._generate_kfolds()
         self._predict_expression(gene)
         self._associate()
 
@@ -367,12 +379,14 @@ class Association():
         Returns:
             TYPE: Description
         """
-
-        self._frequentist(self.pred_expr)
-        if (self.f_df['pvalue'] < 0.25).any():
-            print(self.f_df)
+        intra_var = self.pred_expr.mean(axis=1).var(ddof=1)
+        inter_var = self.pred_expr.var(axis=1, ddof=1).mean()
+        if intra_var > inter_var:
+            print('Heritable, running associations.')
+            self._frequentist(self.pred_expr)
             self._bayesian()
         else:
+            self.f_stats = None
             self.b_stats = None
         return
 
@@ -397,16 +411,6 @@ class Association():
         coefs = coefs[~coefs['bootstrap'].isin(['full', 'twostage'])]
         coef_mean = coefs.groupby('id')['beta'].mean().values
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
-
-
-        # ts_model = bay.TwoStage(coef_mean, coef_sd,
-        #                         variational=True, n_chain=100000,
-        #                         logistic=False)
-        # ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
-        #                         gwas_phen=self.gwas_phen.values)
-        # ts_stats = ts_model.calculate_ppc(ts_trace)
-        # self.b_stats = ts_stats
-        # self.b_trace = ts_trace
 
         ts_model = bay.TwoStage(coef_mean, coef_sd,
                                 variational=True, mb=True, n_chain=100000)
@@ -433,7 +437,9 @@ class Association():
         j_stats2 = j_model2.calculate_ppc(j_trace2)
 
         self.b_traces = [ts_trace, j_trace, j_trace2]
-        self.b_stats = [ts_stats, j_stats, j_stats2]
+        self.b_stats = {'TwoStage': ts_stats,
+                        'Joint-LaPlace': j_stats,
+                        'Joint-Prior': j_stats2}
         return
 
     def _frequentist(self, pred_expr):
@@ -471,9 +477,13 @@ class Association():
                                                               phen),
                        }
         self.f_stats = association
+        return
+
+    def save(self, file_prefix):
         f_df = pd.DataFrame.from_dict(self.f_stats, orient='index')
         f_df.columns = ['coeff', 'se', 'pvalue']
         f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
                                                 f_df.index])
-        self.f_df = f_df
-        return
+        f_df.to_csv(file_prefix+'.fstats.tsv', sep='\t')
+        b_df = pd.DataFrame(self.b_stats).T
+        b_df.to_csv(file_prefix+'.bstats.tsv', sep='\t')
