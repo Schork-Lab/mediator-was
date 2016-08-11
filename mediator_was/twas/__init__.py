@@ -251,7 +251,6 @@ class Study():
             if ref and alt:
                 # Matches ref and alt
                 if (record.alleles[0] == ref) and (record.alleles[1] == alt):
-                    print(chrom, position, ref, alt, record.alleles)
                     pass
                 # Switched reference and alt
                 elif (record.alleles[0] == alt) and (record.alleles[1] == ref):
