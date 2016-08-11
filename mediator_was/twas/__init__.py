@@ -12,6 +12,7 @@ import glob
 import pysam
 import pandas as pd
 import numpy as np
+from collections import Counter
 from sklearn.cross_validation import KFold
 
 from mediator_was.association.frequentist import *
@@ -231,8 +232,10 @@ class Study():
         if the vcf matches the user-provided ref and alt. If it does not match,
         returns np.NaN
 
-        TODO: Missing values are treated as 0 alt alleles currently.
-
+        NOTE: Missing values are giving the value of the alt allele frequency
+              of the original alt allele. This is most likely to be the minor
+              allele and as such each missing person is set to have 2 * MAF 
+              as their dosage.
         Args:
             chrom (str): chromosome
             position (int): position of loci
@@ -242,27 +245,43 @@ class Study():
         Returns:
             LIST: number of alt alleles per sample, nan if not found
         '''
+        def parse_alleles(samples, switch=False):
+            allele_counts = Counter()
+            for sample in samples:
+                allele_counts.update([gt for gt in sample.values()[0]])
+            n_chroms = (allele_counts[0] + allele_counts[1])
+            aaf = float(allele_counts[1]) / n_chroms
+
+            def replace_missing(allele):
+                if allele is None:
+                    return aaf
+                if switch:
+                    return 1 - allele
+                return allele
+
+            alleles = [np.sum([replace_missing(gt)
+                       for gt in sample.values()[0]])
+                       for sample in samples]
+            return alleles
         try:
             record = next(self.vcf.fetch(str(chrom),
                                          int(position) - 1,
                                          int(position)))
-            alleles = [np.sum([1 if y == 1 else 0 for y in x.values()[0]])
-                       for x in record.samples.values()]
             if ref and alt:
                 # Matches ref and alt
                 if (record.alleles[0] == ref) and (record.alleles[1] == alt):
-                    pass
+                    alleles = parse_alleles(record.samples.values())
                 # Switched reference and alt
                 elif (record.alleles[0] == alt) and (record.alleles[1] == ref):
                     print('Switching ref, alt at {}:{}'.format(chrom, position))
-                    alleles = [2 - x for x in alleles]
+                    alleles = parse_alleles(record.samples.values(), switch=True)
                 # Not matching ref and alt
                 else:
                     print('Not matching ref, alt at {}:{}'.format(chrom, position))
 
                     raise
         except:
-            alleles = np.nan
+             alleles = np.nan
         return alleles
 
 
@@ -295,7 +314,7 @@ class Association():
         self._load_phenotypes(gene, study)
         #self._generate_kfolds()
         self._predict_expression(gene)
-        self._associate()
+        # self._associate()
 
         return
 
@@ -439,6 +458,7 @@ class Association():
         self.b_stats = {'TwoStage': ts_stats,
                         'Joint-LaPlace': j_stats,
                         'Joint-Prior': j_stats2}
+        print(self.b_stats)
         return
 
     def _frequentist(self, pred_expr):
@@ -476,6 +496,7 @@ class Association():
                                                               phen),
                        }
         self.f_stats = association
+        print(self.f_stats)
         return
 
     def save(self, file_prefix):
