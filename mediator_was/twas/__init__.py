@@ -475,7 +475,7 @@ class Association():
         print(self.b_stats)
         return
 
-    def _permute(self, n_permutations=10, random_state=0):
+    def permute(self, n_permutations=10, random_state=0):
         self.permute_stats = []
         j_model = bay.Joint(model_type='laplace',
                             variational=True,
