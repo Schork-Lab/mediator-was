@@ -354,6 +354,10 @@ class Association():
         self.gwas_gen = self.gwas_gen[self.loci]
         self.gwas_gen.index = study.samples
         self.gtex_gen = gene.alleles[self.loci]
+        # # NOTE :: included_snps should be part of gene object too.
+        ## CLEAN THIS UP.
+        self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
+        self.included_snps = list(set(self.loci).intersection(self.included_snps))
 
         return
 
@@ -432,9 +436,9 @@ class Association():
             dict: Bayesian Statistics
         """
 
-        # First stage filter for TwoStage Model
-        self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
-        self.included_snps = list(set(self.loci).intersection(self.included_snps))
+        # # First stage filter for TwoStage Model
+        # self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
+        # self.included_snps = list(set(self.loci).intersection(self.included_snps))
 
         coefs = self.elasticnet[self.elasticnet['id'].isin(self.included_snps)]
         coefs = coefs[~coefs['bootstrap'].isin(['full', 'twostage'])]
@@ -481,6 +485,7 @@ class Association():
                             variational=True,
                             mb=True,
                             n_chain=50000)
+
         for i in range(n_permutations):
             random_state = random_state * i + i
             gwas_phen = resample(self.gwas_phen.values,
