@@ -65,7 +65,7 @@ if __name__ == "__main__":
             aggregate(sys.argv[2], sys.argv[3])
         elif sys.argv[1] == "permute":
             print('Permuting for {} to {}'.format(sys.argv[2], sys.argv[3]))
-            associate(sys.argv[2], sys.argv[3],
+            permute(sys.argv[2], sys.argv[3],
                       int(sys.argv[4]), int(sys.argv[5]),
                       sys.argv[6])
         else:
