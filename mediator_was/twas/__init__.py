@@ -397,11 +397,11 @@ class Association():
         Returns:
             TYPE: Description
         """
-        intra_var = self.pred_expr.mean(axis=1).var(ddof=1)
-        inter_var = self.pred_expr.var(axis=1, ddof=1).mean()
+        inter_var = self.pred_expr.mean(axis=1).var(ddof=1)
+        intra_var = self.pred_expr.var(axis=1, ddof=1).mean()
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
-        if intra_var > inter_var:
+        if (2*inter_var) > intra_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
             self._bayesian()
