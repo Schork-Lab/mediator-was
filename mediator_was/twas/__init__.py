@@ -489,6 +489,7 @@ class Association():
         for i in range(n_permutations):
             random_state = random_state * i + i
             gwas_phen = resample(self.gwas_phen.values,
+                                 replace=False,
                                  random_state=random_state)
 
             j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
