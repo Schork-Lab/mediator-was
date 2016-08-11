@@ -507,7 +507,9 @@ class Association():
             f_df.columns = ['coeff', 'se', 'pvalue']
             f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
                                                     f_df.index])
-            f_df.to_csv(file_prefix+'.fstats.tsv', sep='\t')
+            f_df.to_csv(file_prefix + '.fstats.tsv', sep='\t')
         if self.b_stats is not None:
             b_df = pd.DataFrame(self.b_stats).T
-            b_df.to_csv(file_prefix+'.bstats.tsv', sep='\t')
+            b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
+                                                    b_df.index])
+            b_df.to_csv(file_prefix + '.bstats.tsv', sep='\t')
