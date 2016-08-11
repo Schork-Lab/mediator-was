@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from collections import Counter
 from sklearn.cross_validation import KFold
+from sklearn.utils import resample
 
 from mediator_was.association.frequentist import *
 import mediator_was.association.bayesian as bay
@@ -299,7 +300,10 @@ class Association():
         gwas_phen (TYPE): Description
         study (TYPE): Description
     """
-    def __init__(self, gene, study, min_p_inclusion=0.5):
+    def __init__(self, gene, study,
+                 associate=True,
+                 permute=None,
+                 min_p_inclusion=0.5):
         """Summary
 
         Args:
@@ -314,7 +318,15 @@ class Association():
         self._load_phenotypes(gene, study)
         #self._generate_kfolds()
         self._predict_expression(gene)
-        self._associate()
+        self.f_stats = None
+        self.b_stats = None
+        self.permute_stats = None
+
+        if associate:
+            self.associate()
+        if permute is not None:
+            n_permutations, random_state = permute
+            self.permute(n_permutations, random_state)
 
         return
 
@@ -391,7 +403,7 @@ class Association():
                             random_state=seed)
         return
 
-    def _associate(self,):
+    def associate(self,):
         """Summary
 
         Returns:
@@ -405,9 +417,6 @@ class Association():
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
             self._bayesian()
-        else:
-            self.f_stats = None
-            self.b_stats = None
         return
 
     def _bayesian(self):
@@ -432,35 +441,58 @@ class Association():
         coef_mean = coefs.groupby('id')['beta'].mean().values
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
 
-        ts_model = bay.TwoStage(coef_mean, coef_sd,
-                                variational=True, mb=True, n_chain=100000)
-        ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
-                                gwas_phen=self.gwas_phen.values)
-        ts_stats = ts_model.calculate_ppc(ts_trace)
+        # ts_model = bay.TwoStage(coef_mean, coef_sd,
+        #                         variational=True, mb=True, n_chain=50000)
+        # ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
+        #                         gwas_phen=self.gwas_phen.values)
+        # ts_stats = ts_model.calculate_ppc(ts_trace)
 
         j_model = bay.Joint(model_type='laplace',
-                            variational=True, mb=True, n_chain=100000)
+                            variational=True, mb=True, n_chain=50000)
         j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
                               med_phen=self.gtex_phen.values.ravel(),
                               gwas_gen=self.gwas_gen[self.included_snps].values,
                               gwas_phen=self.gwas_phen.values)
         j_stats = j_model.calculate_ppc(j_trace)
 
-        j_model2 = bay.Joint(model_type='prior',
-                             coef_mean=coef_mean,
-                             coef_sd=coef_sd,
-                             variational=True, mb=True, n_chain=100000)
-        j_trace2 = j_model2.run(med_gen=self.gtex_gen[self.included_snps].values,
-                               med_phen=self.gtex_phen.values.ravel(),
-                               gwas_gen=self.gwas_gen[self.included_snps].values,
-                               gwas_phen=self.gwas_phen.values)
-        j_stats2 = j_model2.calculate_ppc(j_trace2)
+        # j_model2 = bay.Joint(model_type='prior',
+        #                      coef_mean=coef_mean,
+        #                      coef_sd=coef_sd,
+        #                      variational=True, mb=True, n_chain=50000)
+        # j_trace2 = j_model2.run(med_gen=self.gtex_gen[self.included_snps].values,
+        #                        med_phen=self.gtex_phen.values.ravel(),
+        #                        gwas_gen=self.gwas_gen[self.included_snps].values,
+        #                        gwas_phen=self.gwas_phen.values)
+        # j_stats2 = j_model2.calculate_ppc(j_trace2)
 
-        self.b_traces = [ts_trace, j_trace, j_trace2]
-        self.b_stats = {'TwoStage': ts_stats,
-                        'Joint-LaPlace': j_stats,
-                        'Joint-Prior': j_stats2}
+        # self.b_traces = [ts_trace, j_trace, j_trace2]
+        # self.b_stats = {'TwoStage': ts_stats,
+        #                 'Joint-LaPlace': j_stats,
+        #                'Joint-Prior': j_stats2}
+        self.b_traces = [j_trace]
+        self.b_stats = {'Joint_LaPlace': j_stats}
+
         print(self.b_stats)
+        return
+
+    def _permute(self, n_permutations=10, random_state=0):
+        self.permute_stats = []
+        j_model = bay.Joint(model_type='laplace',
+                            variational=True,
+                            mb=True,
+                            n_chain=50000)
+        for i in range(n_permutations):
+            random_state = random_state * i + i
+            gwas_phen = resample(self.gwas_phen.values,
+                                 random_state=random_state)
+
+            j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
+                                  med_phen=self.gtex_phen.values.ravel(),
+                                  gwas_gen=self.gwas_gen[self.included_snps].values,
+                                  gwas_phen=gwas_phen)
+            j_stats = j_model.calculate_ppc(j_trace)
+            self.permute_stats.append({'Permuted-Joint-LaPlace': j_stats})
+
         return
 
     def _frequentist(self, pred_expr):
@@ -505,11 +537,19 @@ class Association():
         if self.f_stats is not None:
             f_df = pd.DataFrame.from_dict(self.f_stats, orient='index')
             f_df.columns = ['coeff', 'se', 'pvalue']
-            f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
-                                                    f_df.index])
+            f_df.index = pd.MultiIndex.from_tuples([(index, self.gene)
+                                                    for index in f_df.index])
             f_df.to_csv(file_prefix + '.fstats.tsv', sep='\t')
         if self.b_stats is not None:
             b_df = pd.DataFrame(self.b_stats).T
-            b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
-                                                    b_df.index])
+            b_df.index = pd.MultiIndex.from_tuples([(index, self.gene)
+                                                    for index in b_df.index])
             b_df.to_csv(file_prefix + '.bstats.tsv', sep='\t')
+
+        if self.permute_stats is not None:
+            permute_df = pd.concat([pd.DataFrame(stats).T
+                                    for stats in self.permute_stats])
+            index = [('Permutation {}'.format(i), test, self.gene)
+                     for i, test in enumerate(permute_df.index)]
+            permute_df.index = pd.MultiIndex.from_tuples(index)
+            permute_df.to_csv(file_prefix + '.permutations.tsv', sep='\t')
