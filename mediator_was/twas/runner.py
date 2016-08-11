@@ -15,13 +15,22 @@ def associate(gene_dir, study_prefix, out_prefix):
 
 def aggregate(association_dir, prefix=None):
     fns = glob.glob(os.path.join(association_dir, '*.fstats.tsv'))
-    f_df = pd.concat([pd.read_table(fn, sep='\t', index_col=[0, 1])
-                     for fn in fns if fn.find('combined') != -1])
-    f_df.to_csv('aggregated.fstats.tsv', sep='\t')
+    print('{} frequentist files found.'.format(len(fns)))
+    f_df = pd.concat([pd.read_table(fn, sep='\t')
+                     for fn in fns if fn.find('aggregated') == -1])
+    f_df.to_csv(".".join([prefix, 'aggregated.fstats.tsv']), sep='\t', index=False)
     fns = glob.glob(os.path.join(association_dir, '*.bstats.tsv'))
-    b_df = pd.concat([pd.read_table(fn, sep='\t', index_col=[0, 1])
-                     for fn in fns if fn.find('combined') != -1])
-    b_df.to_csv(".".join([prefix, 'aggregated.bstats.tsv']), sep='\t')
+
+    def b_reader(fn):
+       # Written because of initially not saving gene name
+       df = pd.read_table(fn, sep='\t')
+       if len(df.columns) == 8:
+          df['gene'] = os.path.basename(fn).split('.')[0].split('_')[1]
+          return df[[df.columns[0], 'gene']+list(df.columns[1:-1])]
+       return df
+    b_df = pd.concat([b_reader(fn)
+                     for fn in fns if fn.find('aggregated') == -1])
+    b_df.to_csv(".".join([prefix, 'aggregated.bstats.tsv']), sep='\t', index=False)
     return
 
 if __name__ == "__main__":
