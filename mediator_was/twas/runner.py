@@ -14,8 +14,8 @@ def associate(gene_dir, study_prefix, out_prefix):
 
 
 def permute(gene_dir, study_prefix,
-                n_permutations, random_state,
-                out_prefix):
+            n_permutations, random_state,
+            out_prefix):
     gene = T.Gene(gene_dir)
     study = T.Study(study_prefix)
     association = T.Association(gene, study, associate=False,
@@ -55,7 +55,7 @@ if __name__ == "__main__":
         print("Usage: python runner {associate, aggregate}")
         print("python runner.py associate gene_file study_file out_prefix")
         print("python runner.py aggregate association_dir out_prefix")
-        print("python runner.py permutate ")
+        print("python runner.py permutate gene_file study_file n_permutations random_state out_prefix")
     else:
         if sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[2], sys.argv[3]))
@@ -63,5 +63,10 @@ if __name__ == "__main__":
         elif sys.argv[1] == "aggregate":
             print('Running aggregate for {}'.format(sys.argv[2]))
             aggregate(sys.argv[2], sys.argv[3])
+        elif sys.argv[1] == "permute":
+            print('Permuting for {} to {}'.format(sys.argv[2], sys.argv[3]))
+            associate(sys.argv[2], sys.argv[3],
+                      int(sys.argv[4]), int(sys.argv[5]),
+                      sys.argv[6])
         else:
             print('Unrecognized command', sys.argv[1])
