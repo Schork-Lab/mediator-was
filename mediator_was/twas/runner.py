@@ -31,6 +31,7 @@ def aggregate(association_dir, prefix=None):
        try: 
            return pd.read_table(fn, sep='\t')
        except:
+            print('{} is empty.'.format(fn))
             return None
     
     f_df = pd.concat([f_reader(fn)
@@ -46,6 +47,7 @@ def aggregate(association_dir, prefix=None):
         try:
             df = pd.read_table(fn, sep='\t')
         except:
+            print('{} is empty.'.format(fn))
             return None
         if len(df.columns) == 8:
             df['gene'] = os.path.basename(fn).split('.')[0].split('_')[1]
