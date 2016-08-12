@@ -27,7 +27,13 @@ def permute(gene_dir, study_prefix,
 def aggregate(association_dir, prefix=None):
     fns = glob.glob(os.path.join(association_dir, '*.fstats.tsv'))
     print('{} frequentist files found.'.format(len(fns)))
-    f_df = pd.concat([pd.read_table(fn, sep='\t')
+    def f_reader(fn):
+       try: 
+           return pd.read_table(fn, sep='\t')
+       except:
+            return None
+    
+    f_df = pd.concat([f_reader(fn)
                      for fn in fns if fn.find('aggregated') == -1])
     f_df.to_csv(".".join([prefix, 'aggregated.fstats.tsv']),
                 sep='\t', index=False)
@@ -37,7 +43,10 @@ def aggregate(association_dir, prefix=None):
         '''
           Written because of initially not saving gene name
         '''
-        df = pd.read_table(fn, sep='\t')
+        try:
+            df = pd.read_table(fn, sep='\t')
+        except:
+            return None
         if len(df.columns) == 8:
             df['gene'] = os.path.basename(fn).split('.')[0].split('_')[1]
             return df[[df.columns[0], 'gene'] + list(df.columns[1:-1])]
