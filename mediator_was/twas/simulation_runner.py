@@ -45,11 +45,11 @@ def power(association_dir, out_file):
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
-        print("Usage: python runner {gene, phenotype, association}")
-        print("python runner.py simulate_gene gene_name plink_file out_file {optional p_causal_eqtls}")
-        print("python runner.py simulate_study study_name gene_list_file out_file {optional seed}")
-        print("python runner.py associate association_name gene_file study_file out_file")
-        print("python runner.py power association_dir out_file")
+        print("Usage: ")
+        print("python simulation_runner.py simulate_gene gene_name plink_file out_file {optional p_causal_eqtls}")
+        print("python simulation_runner.py simulate_study study_name gene_list_file out_file {optional seed}")
+        print("python simulation_runner.py associate association_name gene_file study_file out_file")
+        print("python simulation_runner.py power association_dir out_file")
     else:
         if sys.argv[1] == "simulate_gene":
             print('Simulating gene {}'.format(sys.argv[2]))
