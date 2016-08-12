@@ -226,7 +226,7 @@ class Study():
         # self.case_control = self.case_control.ix[self.samples]['phen']
         return
 
-    def get_alleles(self, chrom, position, ref=None, alt=None):
+    def get_alleles(self, chrom, position, ref=None, alt=None, missing_filter=0.05):
         '''
         Get alleles for a particular locus using the vcf reader.
         If the locus is not found, return np.NaN. Optionally, checks
@@ -251,8 +251,13 @@ class Study():
             for sample in samples:
                 allele_counts.update([gt for gt in sample.values()[0]])
             n_chroms = (allele_counts[0] + allele_counts[1])
+            t_chroms = n_chroms + allele_counts[None]
+            # aaf = 0
             aaf = float(allele_counts[1]) / n_chroms
-
+            missing_af = float(allele_counts[None]) / t_chroms
+            if missing_af > missing_filter:
+                print('Missing freq {} is higher than {} for {}: {}, skipping.'.format(missing_af, missing_filter, chrom, position))
+                raise
             def replace_missing(allele):
                 if allele is None:
                     return aaf
@@ -303,7 +308,8 @@ class Association():
     def __init__(self, gene, study,
                  associate=True,
                  permute=None,
-                 min_p_inclusion=0.5):
+                 min_p_inclusion=0.5,
+                 missing_filter=0.05):
         """Summary
 
         Args:
@@ -314,6 +320,7 @@ class Association():
         self.study = study.name
         self.elasticnet = gene.elasticnet
         self.min_p_inclusion = min_p_inclusion
+        self.missing_filter = missing_filter
         self._load_genotypes(gene, study)
         self._load_phenotypes(gene, study)
         #self._generate_kfolds()
@@ -343,7 +350,8 @@ class Association():
             alleles = study.get_alleles(loci['chromosome'],
                                         loci['position'],
                                         loci['ref'],
-                                        loci['alt'])
+                                        loci['alt'],
+                                        self.missing_filter)
             return alleles
         alleles = gene.loci.apply(_get_alleles, axis=1)
         alleles = alleles[~alleles.isnull()]
