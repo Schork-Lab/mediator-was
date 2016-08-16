@@ -51,7 +51,6 @@ class Gene():
         Args:
             main_dir (str): path to directory with processed information
             gtex (bool, optional): use gtex normalized or rlog normalized
-        
         """
         self.main_dir = main_dir
         self.name = os.path.basename(main_dir)
@@ -353,7 +352,7 @@ class Association():
                                         loci['alt'],
                                         self.missing_filter)
             return alleles
-        alleles = gene.loci.apply(_get_alleles, axis=1)
+        alleles = gene.loci[gene.loci.index.isin(gene.elasticnet['id'])].apply(_get_alleles, axis=1)
         alleles = alleles[~alleles.isnull()]
         self.gwas_gen = pd.DataFrame([np.array(x) for x in alleles],
                                      index=alleles.index).T
@@ -415,7 +414,7 @@ class Association():
                             random_state=seed)
         return
 
-    def associate(self,):
+    def associate(self, **bayesian_args):
         """Summary
 
         Returns:
@@ -428,10 +427,10 @@ class Association():
         if inter_var > intra_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
-            self._bayesian()
+            self._bayesian(**bayesian_args)
         return
 
-    def _bayesian(self):
+    def _bayesian(self, joint=True, ts=False, joint_prior=False):
         """
         Fit three different Bayesian Linear Regressions using
         only SNPS filtered using ElasticNet.
@@ -447,42 +446,46 @@ class Association():
         # # First stage filter for TwoStage Model
         # self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
         # self.included_snps = list(set(self.loci).intersection(self.included_snps))
+        self.b_stats = {}
+        self.b_traces = {}
 
         coefs = self.elasticnet[self.elasticnet['id'].isin(self.included_snps)]
         coefs = coefs[~coefs['bootstrap'].isin(['full', 'twostage'])]
         coef_mean = coefs.groupby('id')['beta'].mean().values
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
 
-        # ts_model = bay.TwoStage(coef_mean, coef_sd,
-        #                         variational=True, mb=True, n_chain=50000)
-        # ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
-        #                         gwas_phen=self.gwas_phen.values)
-        # ts_stats = ts_model.calculate_ppc(ts_trace)
+        if ts:
+            ts_model = bay.TwoStage(coef_mean, coef_sd,
+                                    variational=True, mb=False, n_chain=50000)
+            ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
+                                    gwas_phen=self.gwas_phen.values)
+            ts_stats = ts_model.calculate_ppc(ts_trace)
+            self.b_traces['ts'] = ts_trace
+            self.b_stats['ts'] = ts_stats
 
-        j_model = bay.Joint(model_type='laplace',
-                            variational=True, mb=True, n_chain=50000)
-        j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
-                              med_phen=self.gtex_phen.values.ravel(),
-                              gwas_gen=self.gwas_gen[self.included_snps].values,
-                              gwas_phen=self.gwas_phen.values)
-        j_stats = j_model.calculate_ppc(j_trace)
+        if joint:
+            j_model = bay.Joint(model_type='laplace',
+                                variational=True, mb=True, n_chain=50000)
+            j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
+                                  med_phen=self.gtex_phen.values.ravel(),
+                                  gwas_gen=self.gwas_gen[self.included_snps].values,
+                                  gwas_phen=self.gwas_phen.values)
+            j_stats = j_model.calculate_ppc(j_trace)
+            self.b_traces['Joint_LaPlace'] = j_trace
+            self.b_stats['Joint_LaPlace'] = j_stats
 
-        # j_model2 = bay.Joint(model_type='prior',
-        #                      coef_mean=coef_mean,
-        #                      coef_sd=coef_sd,
-        #                      variational=True, mb=True, n_chain=50000)
-        # j_trace2 = j_model2.run(med_gen=self.gtex_gen[self.included_snps].values,
-        #                        med_phen=self.gtex_phen.values.ravel(),
-        #                        gwas_gen=self.gwas_gen[self.included_snps].values,
-        #                        gwas_phen=self.gwas_phen.values)
-        # j_stats2 = j_model2.calculate_ppc(j_trace2)
-
-        # self.b_traces = [ts_trace, j_trace, j_trace2]
-        # self.b_stats = {'TwoStage': ts_stats,
-        #                 'Joint-LaPlace': j_stats,
-        #                'Joint-Prior': j_stats2}
-        self.b_traces = [j_trace]
-        self.b_stats = {'Joint_LaPlace': j_stats}
+        if joint_prior:
+            j_model2 = bay.Joint(model_type='prior',
+                                 coef_mean=coef_mean,
+                                 coef_sd=coef_sd,
+                                 variational=True, mb=True, n_chain=50000)
+            j_trace2 = j_model2.run(med_gen=self.gtex_gen[self.included_snps].values,
+                                   med_phen=self.gtex_phen.values.ravel(),
+                                   gwas_gen=self.gwas_gen[self.included_snps].values,
+                                   gwas_phen=self.gwas_phen.values)
+            j_stats2 = j_model2.calculate_ppc(j_trace2)
+            self.b_traces['Joint_Prior'] = j_trace2
+            self.b_stats['Joint_Prior'] = j_stats2
 
         print(self.b_stats)
         return

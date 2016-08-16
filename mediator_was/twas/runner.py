@@ -12,6 +12,14 @@ def associate(gene_dir, study_prefix, out_prefix):
     association.save(out_prefix)
     return
 
+def associate_ts(gene_dir, study_prefix, out_prefix):
+    gene = T.Gene(gene_dir)
+    study = T.Study(study_prefix)
+    association = T.Association(gene, study, associate=False)
+    association.associate(**{'ts': True, 'joint': False})
+    association.save(out_prefix)
+    return
+
 
 def permute(gene_dir, study_prefix,
             n_permutations, random_state,
@@ -71,6 +79,9 @@ if __name__ == "__main__":
         if sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[2], sys.argv[3]))
             associate(sys.argv[2], sys.argv[3], sys.argv[4])
+        elif sys.argv[1] == "associate_ts":
+            print('Two stage associating {} to {}'.format(sys.argv[2], sys.argv[3]))
+            associate_ts(sys.argv[2], sys.argv[3], sys.argv[4])
         elif sys.argv[1] == "aggregate":
             print('Running aggregate for {}'.format(sys.argv[2]))
             aggregate(sys.argv[2], sys.argv[3])
