@@ -225,7 +225,7 @@ class Study():
         # self.case_control = self.case_control.ix[self.samples]['phen']
         return
 
-    def get_alleles(self, chrom, position, ref=None, alt=None, missing_filter=0.05):
+    def get_alleles(self, chrom, position, ref=None, alt=None, missing_filter=0.1):
         '''
         Get alleles for a particular locus using the vcf reader.
         If the locus is not found, return np.NaN. Optionally, checks
