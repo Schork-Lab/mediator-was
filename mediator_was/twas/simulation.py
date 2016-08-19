@@ -322,7 +322,7 @@ class Association(object):
 
         self._generate_kfolds()
         self._frequentist(gene)
-        self._bayesian(gene)
+        #self._bayesian(gene)
         return
 
     def _generate_kfolds(self, k=5, seed=0):
@@ -372,7 +372,8 @@ class Association(object):
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
                                            method="OLS"),
                        'RC-hetero-bootstrapped': t(w_bootstrap, phenotype,
-                                                   sigma_ui_bootstrap),
+                                                   sigma_ui_bootstrap,
+                                                   method='rc-hetero'),
                        'MI-Bootstrapped': multiple_imputation(pred_expr,
                                                               phenotype),
                        'OLS-TwoStage': t(ts_expr, phenotype, method="OLS")
@@ -435,6 +436,10 @@ class Association(object):
                                                 b_df.index])
         return b_df
 
+    def save(self, fn):
+        df = self.create_frequentist_df()
+        df.to_csv(fn+'.fassoc.tsv', sep='\t')
+        return
 
 
 class Power():

@@ -31,8 +31,9 @@ def associate(association_name, gene_file, study_file, out_file):
         gene = pickle.load(open(gene_file, 'rb'))
     study = pickle.load(open(study_file, 'rb'))
     association = s.Association(association_name, gene, study)
-    with open(out_file, 'wb') as f:
-        pickle.dump(association, f)
+    association.save(out_file.replace('.pkl', ''))
+    # with open(out_file, 'wb') as f:
+    #     pickle.dump(association, f)
     return
 
 
