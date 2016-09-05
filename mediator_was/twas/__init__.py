@@ -216,6 +216,7 @@ class Study():
         self.phen = {}
         for fn in glob.glob(phen_prefix_path + '*.liab'):
             chrom = fn.split('.')[-2]
+            fn = phen_prefix_path + ".liab_all" # REMOVE THIS LATER!!!!!
             df = pd.read_table(fn, index_col=0, names=['phen'])
             self.phen[chrom] = df.ix[self.samples]
         # self.case_control = pd.read_table(phen_prefix_path + '.fam',
@@ -424,7 +425,7 @@ class Association():
         intra_var = self.pred_expr.var(axis=1, ddof=1).mean()
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
-        if 1.5*inter_var > intra_var:
+        if 1.1*inter_var > intra_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
             self._bayesian(**bayesian_args)
