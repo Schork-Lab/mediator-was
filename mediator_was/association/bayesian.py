@@ -265,12 +265,12 @@ class BayesianModel(object):
     def calculate_ppc(self, trace):
         dic = pm.stats.dic(trace, self.cached_model)
         waic, log_py, logp = calculate_waic(trace, self.cached_model)
-        loo = calculate_loo(log_py=log_py)
+        #loo = calculate_loo(log_py=log_py)
         mu, sd, zscore = self._alpha_stats(trace)
         return {'dic': dic,
                 'waic': waic,
                 'logp': logp,
-                'loo': loo,
+                #'loo': loo,
                 'mu': mu,
                 'sd': sd,
                 'zscore': zscore}
