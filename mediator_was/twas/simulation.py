@@ -148,7 +148,8 @@ class Gene():
             n_causal_eqtls = int(np.round(n_snps * self.p_causal_eqtls))
         self.causal_loci = self._sample_causal_loci(n_causal_eqtls)
         self.beta = np.zeros(n_snps)
-        self.beta[self.causal_loci] = R.normal(size=n_causal_eqtls)
+        #self.beta[self.causal_loci] = R.normal(size=n_causal_eqtls)
+        self.beta[self.causal_loci] = np.ones(n_causal_eqtls)
         self.train_ind = R.random_integers(low=0,
                                            high=self.haps.shape[1] - 2,
                                            size=self.n_train)
