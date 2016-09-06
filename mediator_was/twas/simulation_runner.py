@@ -61,8 +61,11 @@ if __name__ == "__main__":
         elif sys.argv[1] == "simulate_study":
             print('Simulating study phenotype '.format(sys.argv[2]))
             seed = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+            n_samples = int(sys.argv[6]) if len(sys.argv) > 6 else 5000
             print('Seed: {}'.format(seed))
-            simulate_study(sys.argv[2], sys.argv[3], sys.argv[4], seed=seed)
+            print('Number of samples: {}'.format(n_samples))
+            simulate_study(sys.argv[2], sys.argv[3], sys.argv[4],
+                           seed=seed, n_samples=n_samples)
         elif sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[3], sys.argv[4]))
             associate(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
