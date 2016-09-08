@@ -417,6 +417,27 @@ class Association(object):
                                                 f_df.index])
         return f_df
 
+    def create_bayesian_df(self):
+        def create_stat_df(association, stat='waic'):
+            models = ['Two Stage', 'Joint']
+            b_stat = dict((model, stats[stat])
+                          for model, stats in zip(models,
+                                                  self.b_stats)
+                          )
+            b_df = pd.DataFrame.from_dict(b_stat, orient='index')
+            b_df.columns = ['value']
+            b_df.index = pd.MultiIndex.from_tuples([(index, self.gene, stat)
+                                                   for index in b_df.index])
+            return b_df
+
+        b_df = pd.concat([create_stat_df(association, 'dic'),
+                          create_stat_df(association, 'waic'),
+                          create_stat_df(association, 'logp'),
+                          create_stat_df(association, 'mu'),
+                          create_stat_df(association, 'sd')
+                          ])
+        return b_df
+
     def create_mse_df(self):
         '''
         Create dataframe from b_mse dict
@@ -438,9 +459,12 @@ class Association(object):
         return b_df
 
     def save(self, fn):
-        df = self.create_frequentist_df()
-        df.to_csv(fn+'.fassoc.tsv', sep='\t')
+        f_df = self.create_frequentist_df()
+        f_df.to_csv(fn+'.fassoc.tsv', sep='\t')
+        b_df = self.create_bayesian_df()
+        b_df.to_csv(fn+'.bassoc.tsv', sep='\t')
         return
+
 
 
 class Power():
@@ -524,26 +548,18 @@ class Power():
 
         if association_dir:
             associations = get_associations(association_dir)
-        #freq, mse, mse2, logp = [], [], [], []
-        freq, dic, waic, loo, logp = [], [], [], [], []
+
+        freq, dic, waic, logp = [], [], [], [], []
         for association in associations:
             dic.append(create_stat_df(association, 'dic'))
             waic.append(create_stat_df(association, 'waic'))
-            loo.append(create_stat_df(association, 'loo'))
             logp.append(create_stat_df(association, 'logp'))
-            # mse2.append(create_mse2(association))
             freq.append(association.create_frequentist_df())
-            # mse.append(association.create_mse_df())
-            # logp.append(association.create_logp_df())
             
         self.f_association_df = pd.concat(freq)
         self.b_dic_df = pd.concat(dic)
         self.b_waic_df = pd.concat(waic)
-        self.b_loo_df = pd.concat(loo)
         self.b_logp_df = pd.concat(logp)
-        # self.b_mse_df = pd.concat(mse)
-        # self.b_mse2_df = pd.concat(mse2)
-        # self.b_logp_df = pd.concat(logp)
 
         self.f_estimator_df = create_estimator_df(self.f_association_df)
         logp_sort = lambda x: x.sort_values('logp', ascending=False)
@@ -553,9 +569,6 @@ class Power():
         waic_sort = lambda x: x.sort_values('waic')
         self.waic_estimator_df = create_estimator_df(self.b_waic_df, waic_sort)
 
-        # mse_sort = lambda x: x.sort_values('mse')
-        # self.mse_estimator_df = create_estimator_df(self.b_mse_df, mse_sort)
-        # self.mse2_estimator_df = create_estimator_df(self.b_mse2_df, mse_sort)
         return
 
     def _calculate_estimator_df(self, association_df,
