@@ -586,12 +586,13 @@ class Power():
                              for fn in glob.glob(os.path.join(association_dir, 
                                                               '*.bassoc.tsv'))
                              ])
+            b_df['value'] = b_df['value'].astype(float)
             asc_sort = lambda x: x.sort_values('value', ascending=False)
             des_sort = lambda x: x.sort_values('value')
             self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), des_sort)
             self.logp_estimator_df = create_estimator_df(b_df.xs('logp', level=2), asc_sort)
             self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), des_sort)
-            zscore_df = (b_df.xs('mean') / b_df.xs('sd')).applymap(abs)
+            zscore_df = (b_df.xs('mu') / b_df.xs('sd')).applymap(abs)
             self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
 
         return
