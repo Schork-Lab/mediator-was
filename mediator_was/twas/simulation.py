@@ -486,7 +486,8 @@ class Power():
 
     '''
 
-    def __init__(self, study=None, associations=None, association_dir=None):
+    def __init__(self, study=None, associations=None, association_dir=None,
+                 pickled=True):
         if association_dir:
             self.association_dir = association_dir
             study_file = glob.glob(association_dir + '*study.pkl')[0]
@@ -497,7 +498,7 @@ class Power():
         else:
             self.study = study.id
             self.study_genes = study.gene_map
-        self._create_association_dfs(associations, association_dir)
+        self._create_association_dfs(associations, association_dir, pickled=pickled)
         self.pr_df = self.precision_recall_df()
         self.roc_df = self.roc_df()
         return
@@ -515,7 +516,9 @@ class Power():
                             self.waic_estimator_df[columns]])
         return roc_df
 
-    def _create_association_dfs(self, associations=None, association_dir=None):
+
+    def _create_association_dfs(self, associations=None, association_dir=None,
+                                pickled=True):
         '''
         Create dataframes that combine all association statistics
         '''
@@ -546,28 +549,50 @@ class Power():
                                                    for index in b_df.index])
             return b_df
 
-        if association_dir:
-            associations = get_associations(association_dir)
+        if pickled:
+            # Load pickled association
+            if association_dir:
+                associations = get_associations(association_dir)
 
-        freq, dic, waic, logp = [], [], [], [], []
-        for association in associations:
-            dic.append(create_stat_df(association, 'dic'))
-            waic.append(create_stat_df(association, 'waic'))
-            logp.append(create_stat_df(association, 'logp'))
-            freq.append(association.create_frequentist_df())
-            
-        self.f_association_df = pd.concat(freq)
-        self.b_dic_df = pd.concat(dic)
-        self.b_waic_df = pd.concat(waic)
-        self.b_logp_df = pd.concat(logp)
+            freq, dic, waic, logp = [], [], [], [], []
+            for association in associations:
+                dic.append(create_stat_df(association, 'dic'))
+                waic.append(create_stat_df(association, 'waic'))
+                logp.append(create_stat_df(association, 'logp'))
+                freq.append(association.create_frequentist_df())
+                
+            self.f_association_df = pd.concat(freq)
+            self.b_dic_df = pd.concat(dic)
+            self.b_waic_df = pd.concat(waic)
+            self.b_logp_df = pd.concat(logp)
 
-        self.f_estimator_df = create_estimator_df(self.f_association_df)
-        logp_sort = lambda x: x.sort_values('logp', ascending=False)
-        self.logp_estimator_df = create_estimator_df(self.b_logp_df, logp_sort)
-        loo_sort = lambda x: x.sort_values('loo', ascending=False)
-        self.loo_estimator_df = create_estimator_df(self.b_loo_df, loo_sort)
-        waic_sort = lambda x: x.sort_values('waic')
-        self.waic_estimator_df = create_estimator_df(self.b_waic_df, waic_sort)
+            self.f_estimator_df = create_estimator_df(self.f_association_df)
+            logp_sort = lambda x: x.sort_values('logp', ascending=False)
+            self.logp_estimator_df = create_estimator_df(self.b_logp_df, logp_sort)
+            loo_sort = lambda x: x.sort_values('loo', ascending=False)
+            self.loo_estimator_df = create_estimator_df(self.b_loo_df, loo_sort)
+            waic_sort = lambda x: x.sort_values('waic')
+            self.waic_estimator_df = create_estimator_df(self.b_waic_df, waic_sort)
+
+        else:
+            # Load intermediate files generated
+            f_df = pd.concat([pd.read_table(fn, index_col=[0, 1])
+                              for fn in glob.glob(os.path.join(association_dir,
+                                                               '*.fassoc.tsv'))
+                              ])
+            self.f_estimator_df = create_estimator_df(f_df)
+
+            b_df = pd.concat([pd.read_table(fn, index_col=[0, 1, 2])
+                             for fn in glob.glob(os.path.join(association_dir, 
+                                                              '*.bassoc.tsv'))
+                             ])
+            asc_sort = lambda x: x.sort_values('value', ascending=False)
+            des_sort = lambda x: x.sort_values('value')
+            self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), des_sort)
+            self.logp_estimator_df = create_estimator_df(b_df.xs('logp', level=2), asc_sort)
+            self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), des_sort)
+            zscore_df = (b_df.xs('mean') / b_df.xs('sd')).applymap(abs)
+            self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
 
         return
 
