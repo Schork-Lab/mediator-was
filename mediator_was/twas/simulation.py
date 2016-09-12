@@ -323,7 +323,7 @@ class Association(object):
 
         self._generate_kfolds()
         self._frequentist(gene)
-        #self._bayesian(gene)
+        self._bayesian(gene)
         return
 
     def _generate_kfolds(self, k=5, seed=0):
@@ -418,7 +418,7 @@ class Association(object):
         return f_df
 
     def create_bayesian_df(self):
-        def create_stat_df(association, stat='waic'):
+        def create_stat_df(stat='waic'):
             models = ['Two Stage', 'Joint']
             b_stat = dict((model, stats[stat])
                           for model, stats in zip(models,
@@ -430,11 +430,11 @@ class Association(object):
                                                    for index in b_df.index])
             return b_df
 
-        b_df = pd.concat([create_stat_df(association, 'dic'),
-                          create_stat_df(association, 'waic'),
-                          create_stat_df(association, 'logp'),
-                          create_stat_df(association, 'mu'),
-                          create_stat_df(association, 'sd')
+        b_df = pd.concat([create_stat_df('dic'),
+                          create_stat_df('waic'),
+                          create_stat_df('logp'),
+                          create_stat_df('mu'),
+                          create_stat_df('sd')
                           ])
         return b_df
 
