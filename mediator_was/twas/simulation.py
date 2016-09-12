@@ -592,7 +592,7 @@ class Power():
             self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), des_sort)
             self.logp_estimator_df = create_estimator_df(b_df.xs('logp', level=2), asc_sort)
             self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), des_sort)
-            zscore_df = (b_df.xs('mu') / b_df.xs('sd')).applymap(abs)
+            zscore_df = (b_df.xs('mu', level=2) / b_df.xs('sd', level=2)).applymap(abs)
             self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
 
         return
