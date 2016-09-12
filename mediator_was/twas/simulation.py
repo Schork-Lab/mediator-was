@@ -24,6 +24,7 @@ import sklearn.utils
 import pandas as pd
 import pymc3 as pm
 from sklearn.cross_validation import KFold, ShuffleSplit
+from scipy import stats
 
 
 from mediator_was.association.frequentist import *
@@ -434,7 +435,8 @@ class Association(object):
                           create_stat_df('waic'),
                           create_stat_df('logp'),
                           create_stat_df('mu'),
-                          create_stat_df('sd')
+                          create_stat_df('sd'),
+                          create_stat_df('zscore')
                           ])
         return b_df
 
@@ -516,6 +518,50 @@ class Power():
                             self.waic_estimator_df[columns]])
         return roc_df
 
+    def power(self, alpha=0.05):
+        def frequentist(f_df):
+            def calculate(estimator):
+                e_df = f_df.ix[estimator]
+                total = len(e_df)
+                e_df = e_df[e_df['in_study']]
+                power = sum(e_df['pvalue'] < alpha/total) / len(e_df)
+                return power
+            return map(calculate, f_df.index.levels[0])
+        
+        def bayesian(zscore_df):
+            def calculate(estimator):
+                e_df = zscore_df.ix[estimator]
+                e_df = e_df[e_df['in_study']]
+                power = sum(e_df['zscore'] > stats.norm.ppf(1 - alpha)) / len(e_df)
+                return power
+            return map(calculate, zscore_df.index.levels[0])
+
+        f_power = frequentist(self.f_association_df)
+        b_power = bayesian(self.zscore_df)
+        return f_power, b_power
+
+    def type_i_error(self, alpha=0.05):
+        ## Should do this one at a gene at a time and then aggregate.
+        def frequentist(f_df):
+            def calculate(estimator):
+                e_df = f_df.ix[estimator]
+                e_df = e_df[e_df['pvalue'] < alpha/len(e_df)]
+                error = sum(~e_df['in_study']) / len(e_df)
+                return error
+            return map(calculate, f_df.index.levels[0])
+        
+        def bayesian(zscore_df):
+            def calculate(estimator):
+                e_df = zscore_df.ix[estimator]
+                e_df = e_df[e_df['zscore'] > stats.norm.ppf(1 - alpha)]
+                error = sum(~e_df['in_study']) / len(e_df)
+                return error
+            return map(calculate, zscore_df.index.levels[0])
+
+        f_error = frequentist(self.f_association_df)
+        b_error = bayesian(self.zscore_df)
+        return f_error, b_error
+
 
     def _create_association_dfs(self, associations=None, association_dir=None,
                                 pickled=True):
@@ -554,17 +600,19 @@ class Power():
             if association_dir:
                 associations = get_associations(association_dir)
 
-            freq, dic, waic, logp = [], [], [], [], []
+            freq, dic, waic, logp, zscore = [], [], [], [], [], []
             for association in associations:
                 dic.append(create_stat_df(association, 'dic'))
                 waic.append(create_stat_df(association, 'waic'))
                 logp.append(create_stat_df(association, 'logp'))
+                zscore.append(create_stat_df(association, 'zscore'))
                 freq.append(association.create_frequentist_df())
                 
             self.f_association_df = pd.concat(freq)
             self.b_dic_df = pd.concat(dic)
             self.b_waic_df = pd.concat(waic)
             self.b_logp_df = pd.concat(logp)
+            self.b_zscore_df = pd.concat(zscore)
 
             self.f_estimator_df = create_estimator_df(self.f_association_df)
             logp_sort = lambda x: x.sort_values('logp', ascending=False)
@@ -573,6 +621,9 @@ class Power():
             self.loo_estimator_df = create_estimator_df(self.b_loo_df, loo_sort)
             waic_sort = lambda x: x.sort_values('waic')
             self.waic_estimator_df = create_estimator_df(self.b_waic_df, waic_sort)
+            zscore_sort = lambda x: x.sort_values('zscore', ascending=False)
+            self.zscore_estimator_df = create_estimator_df(self.b_zscore_df, zscore_sort)
+
 
         else:
             # Load intermediate files generated
@@ -587,13 +638,16 @@ class Power():
                                                               '*.bassoc.tsv'))
                              ])
             b_df['value'] = b_df['value'].astype(float)
-            asc_sort = lambda x: x.sort_values('value', ascending=False)
-            des_sort = lambda x: x.sort_values('value')
-            self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), des_sort)
-            self.logp_estimator_df = create_estimator_df(b_df.xs('logp', level=2), asc_sort)
-            self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), des_sort)
-            zscore_df = (b_df.xs('mu', level=2) / b_df.xs('sd', level=2)).applymap(abs)
-            self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
+            des_sort = lambda x: x.sort_values('value', ascending=False)
+            asc_sort = lambda x: x.sort_values('value')
+            self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), asc_sort)
+            self.logp_estimator_df = create_estimator_df(b_df.xs('logp', level=2), des_sort)
+            self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), asc_sort)
+            if 'zscore' in b_df.index.levels[2]:
+                self.zscore_
+            else:
+                zscore_df = (b_df.xs('mu', level=2) / b_df.xs('sd', level=2)).applymap(abs)
+                self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
 
         return
 
@@ -624,3 +678,5 @@ class Power():
         estimator_df['recall'] = recalls
         estimator_df['estimator'] = estimator
         return estimator_df
+
+
