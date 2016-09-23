@@ -182,7 +182,7 @@ class Study():
         samples (list): list of sample ids of individuals
         vcf (pysam.VariantFile): a reader for the study vcf
     """
-    def __init__(self, study_path_prefix):
+    def __init__(self, study_path_prefix, load_phen=True):
         """
         Initiates pysam object and loads phenotypes
 
@@ -195,7 +195,8 @@ class Study():
         # self.samples = list(map(lambda x: x.split('_')[0],
         #                     self.vcf.header.samples))
         self.samples = list(self.vcf.header.samples)
-        self._load_phenotypes(study_path_prefix)
+        if load_phen:
+            self._load_phenotypes(study_path_prefix)
         return
 
     def _load_phenotypes(self, phen_prefix_path):
@@ -322,7 +323,7 @@ class Association():
         self.min_p_inclusion = min_p_inclusion
         self.missing_filter = missing_filter
         self._load_genotypes(gene, study)
-        self._load_phenotypes(gene, study)
+        
         #self._generate_kfolds()
         self._predict_expression(gene)
         self.f_stats = None
@@ -330,6 +331,7 @@ class Association():
         self.permute_stats = None
 
         if associate:
+            self._load_phenotypes(gene, study)
             self.associate()
         if permute is not None:
             n_permutations, random_state = permute

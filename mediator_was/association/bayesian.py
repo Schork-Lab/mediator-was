@@ -610,3 +610,240 @@ class Joint(BayesianModel):
             self.minibatch_tensors = [gwas_gen, gwas_phen]
 
         return phenotype_model
+
+class MultiStudyMultiTissue(BayesianModel):
+    """
+    Jointly model the transcriptional regulation and
+    its effect on the phenotype in multiple studies 
+    and multiple tissues. Assume that tissues from the same
+    individual are independent given the genotypes i.e.
+
+    P(TisA, TisB | G) = P(TisA | G) P(TisB | G)
+
+    """
+    def __init__(self,
+                 m_laplace_beta=1,
+                 m_sigma_beta=10,
+                 p_sigma_beta=10, *args, **kwargs):
+        """
+            Expression ~ N(X\beta, \sigma_exp)
+            P(\beta) ~ Horseshoe (tau_beta, lambda_beta)
+            P(\sigma_exp) ~ HalfCauchy(m_sigma_beta)
+            Phenotype ~ N(X\beta\alpha, \sigma_phen)
+            P(\alpha) ~ Uniform(-10, 10)
+            P(\sigma_phen) ~ HalfCauchy(p_sigma_beta)
+        Args:
+            tau_beta (int): P(\beta) ~ Horseshoe (tau_beta, lambda_beta)
+            lambda_beta (int): P(\beta) ~ Horseshoe (tau_beta, lambda_beta)
+            m_sigma_beta (int): P(\sigma_exp) ~ HalfCauchy(m_sigma_beta)
+            p_sigma_beta (int): P(\sigma_phen) ~ HalfCauchy(p_sigma_beta)
+
+        """
+        self.name = 'MultiStudyMultiTissue'
+        self.cv_vars = ['gwas_phen', 'gwas_gen']
+        self.vars = {'m_laplace_beta': m_laplace_beta,
+                     'm_sigma_beta': m_sigma_beta,
+                     'p_sigma_beta': p_sigma_beta
+                     }
+        super(MultiStudyMultiTissue, self).__init__(*args, **kwargs)
+
+    def set_idx(self, med_idx, gwas_idx):
+        self.med_idx = med_idx
+        self.gwas_idx = gwas_idx
+        return
+
+    def create_model(self, 
+                     med_gen, med_phen, 
+                     gwas_gen, gwas_phen):
+        n_snps = gwas_gen.eval().shape[1]
+        n_tissues = len(np.unique(self.med_idx)) #
+        n_studies = len(np.unique(self.gwas_idx))
+
+        with pm.Model() as phenotype_model:
+            # Expression
+            beta_med = pm.Laplace('beta_med',
+                                  mu=0,
+                                  b=self.vars['m_laplace_beta'],
+                                  shape=(1, n_snps),)
+            mediator_gamma = pm.HalfCauchy('mediator_gamma',
+                                           beta=1,
+                                           shape=n_tissues)
+            mediator_mu = mediator_gamma[self.med_idx] * pm.dot(beta_med, med_gen.T)            
+            mediator_sigma = pm.HalfCauchy('mediator_sigma',
+                                           beta=self.vars['m_sigma_beta'],
+                                           shape=n_tissues)
+            mediator = pm.Normal('mediator',
+                                 mu=mediator_mu,
+                                 sd=mediator_sigma[self.med_idx],
+                                 observed=med_phen)
+            # Phenotype
+            intercept = pm.Normal('intercept', mu=0, sd=1, shape=n_studies)
+            alpha_mu = pm.Normal('alpha_mu', mu=0, sd=1)
+            alpha_sd = pm.HalfCauchy('alpha_sd', beta=1)
+            alpha = pm.Normal('alpha', mu=alpha_mu, sd=alpha_sd, shape=n_studies)
+            # alpha = pm.Uniform('alpha', -10, 10)
+            phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                            beta=1)
+            phenotype_mu = intercept[self.gwas_idx] + alpha[self.gwas_idx] * phenotype_expression_mu
+            phen = pm.Normal('phen',
+                             mu=phenotype_mu,
+                             sd=phenotype_sigma,
+                             observed=gwas_phen)
+
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+
+        return phenotype_model
+
+
+class NonMediated(BayesianModel):
+    """
+    Model the relationship between the genotype and
+    phenotype without any added information about the 
+    mediator. Use it as a basis for getting
+    the null distribution under a mediation analysis.
+    """
+    def __init__(self,
+                 g_laplace_beta=1,
+                 p_sigma_beta=10, *args, **kwargs):
+        self.name = 'NonMediated'
+        self.cv_vars = ['gwas_phen', 'gwas_gen']
+        self.vars = {'g_laplace_beta': g_laplace_beta,
+                     'p_sigma_beta': p_sigma_beta,
+                     }
+        super(NonMediated, self).__init__(*args, **kwargs)
+
+    def create_model(self, 
+                     gwas_gen, gwas_phen):
+        n_snps = gwas_gen.eval().shape[1]
+        with pm.Model() as phenotype_model:
+            beta = pm.Laplace('beta',
+                              mu=0,
+                              b=self.vars['g_laplace_beta'],
+                              shape=(1, n_snps),)
+            # Phenotype
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                            beta=self.vars['p_sigma_beta'])
+            phenotype_mu = intercept + pm.dot(beta, gwas_gen.T)
+            phen = pm.Normal('phen',
+                             mu=phenotype_mu,
+                             sd=phenotype_sigma,
+                             observed=gwas_phen)
+
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+
+        return phenotype_model
+
+
+
+class MeasurementError(BayesianModel):
+    """
+    Use the canonical definition of measurement error as described
+    in http://andrewgelman.com/2016/09/04/29847/
+
+    """
+    def __init__(self,
+                 mediator_mu,
+                 mediator_sd,
+                 m_laplace_beta=1,
+                 p_sigma_beta=10, *args, **kwargs):
+        self.name = 'NonMediated'
+        self.cv_vars = ['gwas_phen', 'gwas_gen']
+        self.vars = {'mediator_mu': mediator_mu,
+                     'mediator_sd': mediator_sd,
+                     'p_sigma_beta': p_sigma_beta,
+                     }
+        super(MeasurementError, self).__init__(*args, **kwargs)
+
+    def create_model(self, gwas_mediator, gwas_phen, gwas_error):
+        n_samples = gwas_mediator.eval().shape[0]
+        with pm.Model() as phenotype_model:
+            # Phenotype
+            mediator = pm.Normal('mediator',
+                                 mu=self.vars['mediator_mu'],
+                                 sd=self.vars['mediator_sd'],
+                                 shape=n_samples)
+            mediator_meas = pm.Normal('mediator_meas',
+                                      mu=mediator,
+                                      sd=gwas_error,
+                                      shape=n_samples)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Uniform('alpha', -10, 10)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                            beta=self.vars['p_sigma_beta'])
+            phenotype_mu = intercept + alpha * mediator
+            phen = pm.Normal('phen',
+                             mu=phenotype_mu,
+                             sd=phenotype_sigma,
+                             observed=gwas_phen)
+
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+
+        return phenotype_model
+
+class MeasurementErrorBF(BayesianModel):
+    """
+    Use the canonical definition of measurement error as described
+    in http://andrewgelman.com/2016/09/04/29847/
+
+    """
+    def __init__(self,
+                 mediator_mu,
+                 mediator_sd,
+                 m_laplace_beta=1,
+                 p_sigma_beta=10, *args, **kwargs):
+        self.name = 'NonMediated'
+        self.cv_vars = ['gwas_phen', 'gwas_gen']
+        self.vars = {'mediator_mu': mediator_mu,
+                     'mediator_sd': mediator_sd,
+                     'p_sigma_beta': p_sigma_beta,
+                     }
+        super(MeasurementErrorBF, self).__init__(*args, **kwargs)
+
+    def create_model(self, gwas_mediator, gwas_phen, gwas_error):
+        n_samples = gwas_mediator.eval().shape[0]
+        with pm.Model() as phenotype_model:
+
+            # Model Selection
+            p = np.array([0.5, 0.5])
+            mediator_model = pm.Bernoulli('mediator_model', p[1])
+
+            # Mediator
+            mediator = pm.Normal('mediator',
+                                 mu=self.vars['mediator_mu'],
+                                 sd=self.vars['mediator_sd'],
+                                 shape=n_samples)
+            mediator_meas = pm.Normal('mediator_meas',
+                                      mu=mediator,
+                                      sd=gwas_error,
+                                      shape=n_samples)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Uniform('alpha', -10, 10)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                            beta=self.vars['p_sigma_beta'])
+            
+            # Model 1
+            phenotype_mu_m1 = intercept
+
+            # Model 2
+            phenotype_mu_m2 = intercept + alpha * mediator
+
+            phen = pm.DensityDist('phen',
+                                lambda value: pm.switch(mediator_model, 
+                                    pm.Normal.dist(mu=phenotype_mu_m1, sd=phenotype_sigma).logp(value), 
+                                    pm.Normal.dist(mu=phenotype_mu_m2, sd=phenotype_sigma).logp(value)
+                                ),
+                                observed=gwas_phen)
+
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+
+        return phenotype_model
