@@ -287,6 +287,9 @@ class Association(object):
     Args:
         gene - Gene object
         study - Study object
+        seed - seed passed to different random functions
+        associate - compute associations
+        me - use measurement error Bayesian model
 
     Attributes:
         phenotype - study.phenotype
@@ -301,7 +304,7 @@ class Association(object):
         b_mse - mse using out of sample samples
         b_zscore - zscore equivalent statistic for alpha
     '''
-    def __init__(self, name, gene, study, seed=0):
+    def __init__(self, name, gene, study, seed=0, associate=True, me=True):
         R.seed(seed)
         self.name = name
         self.gene = gene.id
@@ -322,9 +325,13 @@ class Association(object):
             self.beta = 0
             self.expected_pve = 0
 
-        self._generate_kfolds()
-        self._frequentist(gene)
-        self._bayesian(gene)
+        if associate:
+            self._frequentist(gene)
+            self.b_stats = {}
+            if me:
+                self._bayesian_me(gene)
+            else:
+                self._bayesian(gene)
         return
 
     def _generate_kfolds(self, k=5, seed=0):
@@ -360,15 +367,15 @@ class Association(object):
         sigma_ui_bootstrap = np.var(pred_expr, ddof=1, axis=0)
 
         # Two-stage bootstrap
-        elasticnet = pd.DataFrame([model.coef_
-                                   for model in gene.bootstrap_models])
-        columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
-        model = sklearn.linear_model.ElasticNetCV
-        # Fit entire model to get estimates of /alpha and /lambda
-        l1_ratio_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
-        full_model = model(l1_ratio=l1_ratio_range, max_iter=10000)
-        full_model.fit(gene.train_genotypes[:,columns], gene.train_expression)
-        ts_expr = full_model.predict(genotype[:, columns])
+        # elasticnet = pd.DataFrame([model.coef_
+        #                            for model in gene.bootstrap_models])
+        # columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
+        # model = sklearn.linear_model.ElasticNetCV
+        # # Fit entire model to get estimates of /alpha and /lambda
+        # l1_ratio_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+        # full_model = model(l1_ratio=l1_ratio_range, max_iter=10000)
+        # full_model.fit(gene.train_genotypes[:,columns], gene.train_expression)
+        # ts_expr = full_model.predict(genotype[:, columns])
 
         association = {'OLS-Mean': t(w_bootstrap, phenotype, method="OLS"),
                        'OLS-ElasticNet': t(pred_expr[0], phenotype,
@@ -378,16 +385,47 @@ class Association(object):
                                                    method='rc-hetero'),
                        'MI-Bootstrapped': multiple_imputation(pred_expr,
                                                               phenotype),
-                       'OLS-TwoStage': t(ts_expr, phenotype, method="OLS")
+       #                'OLS-TwoStage': t(ts_expr, phenotype, method="OLS")
                        }
         self.f_association = association
         return
 
+
+    def _bayesian_me(self, gene):
+        '''
+        Fit measurement error Bayesian model and compute a Bayes Factor
+        and other statistics
+        '''
+        genotype = self.genotype
+        phenotype = self.phenotype
+
+        # Bootstrapped
+        bms = gene.bootstrap_models
+        pred_expr = np.array([m.predict(genotype) for m in bms])
+        w_bootstrap = np.mean(pred_expr, axis=0)
+        sd_ui_bootstrap = np.std(pred_expr, ddof=1, axis=0)
+
+        model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
+                                       mediator_sd=w_bootstrap.std(),
+                                       variational=False,
+                                       n_chain=75000)
+        trace = model.run(gwas_phen=phenotype,
+                          gwas_mediator=w_bootstrap,
+                          gwas_error=np.sqrt(sd_ui_bootstrap))
+
+        stats = model.calculate_ppc(trace)
+        p_alt = model.trace['mediator_model'].mean()
+        bayes_factor = (p_alt/(1-p_alt))
+        stats['bayes_factor'] = bayes_factor
+        self.b_stats[model.name] = stats
+        return self.b_stats
+
     def _bayesian(self, gene, ):
         '''
-        Fit Bayesian models and calculate statistics based on both
+        Fit Two Stage and Joint Bayesian models and calculate statistics based on both
         out of sample MSE and cross-validation.
         '''
+
         elasticnet = pd.DataFrame([model.coef_
                                    for model in gene.bootstrap_models])
         columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
@@ -399,14 +437,55 @@ class Association(object):
         ts_trace = ts_model.run(gwas_gen=self.genotype[:, columns],
                                 gwas_phen=self.phenotype)
         ts_stats = ts_model.calculate_ppc(ts_trace)
+        ts_stats['bayes_factor'] = 0
+        self.b_stats[ts_model.name] = ts_stats
+
         j_model = bay.Joint(variational=True, mb=True, n_chain=50000)
         j_trace = j_model.run(med_gen=gene.train_genotypes[:, columns],
                               med_phen=gene.train_expression,
                               gwas_gen=self.genotype[:, columns],
                               gwas_phen=self.phenotype)
         j_stats = j_model.calculate_ppc(j_trace)
-        self.b_stats = [ts_stats, j_stats]
-        return
+        j_stats['bayes_factor'] = 0
+        self.b_stats[j_model.name] = j_stats
+        return self.b_stats
+
+    def _generate_null_phen(self, permuted_noise=True):
+        model = bay.NonMediated()
+        model.run(gwas_gen=self.genotype, gwas_phen=self.phenotype)
+        self.null_phenotypes = []
+        for idx in range(0, 10):
+            # if permuted_noise:
+            #     phenotype_hat = self.genotype.dot(model.trace[idx]['beta'].ravel())
+            #     residuals = self.phenotype - phenotype_hat
+            #     phenotype_new = phenotype_hat + np.random.permutation(residuals)
+            # else:
+            #     phen = model.cached_model.observed_RVs[0]
+            #     phenotype_new = phen.distribution.random(point=model.trace[idx]).ravel()
+            # self.null_phenotypes.append(phenotype_new)
+            permuted_phenotype = np.random.permutation(self.phenotype)
+            self.null_phenotypes.append(permuted_phenotype)
+        return self.null_phenotypes
+
+    def _generate_null_statistics(self, gene):
+        self.null_stats = []
+        elasticnet = pd.DataFrame([model.coef_
+                                   for model in gene.bootstrap_models])
+        columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
+        self.included_snps = columns
+        coef_mean = elasticnet[columns].mean(axis=0).values
+        coef_sd = elasticnet[columns].std(axis=0, ddof=1).values
+        ts_model = bay.TwoStage(coef_mean, coef_sd,
+                                variational=True,
+                                n_chain=50000)
+
+        for phenotype in self.null_phenotypes:
+            ts_trace = ts_model.run(gwas_gen=self.genotype[:, columns],
+                                    gwas_phen=phenotype)
+            ts_stats = ts_model.calculate_ppc(ts_trace)
+            self.null_stats.append(ts_stats)
+        return self.null_stats
+
 
     def create_frequentist_df(self):
         '''
@@ -420,10 +499,8 @@ class Association(object):
 
     def create_bayesian_df(self):
         def create_stat_df(stat='waic'):
-            models = ['Two Stage', 'Joint']
             b_stat = dict((model, stats[stat])
-                          for model, stats in zip(models,
-                                                  self.b_stats)
+                          for model, stats in self.b_stats.items()
                           )
             b_df = pd.DataFrame.from_dict(b_stat, orient='index')
             b_df.columns = ['value']
@@ -436,28 +513,9 @@ class Association(object):
                           create_stat_df('logp'),
                           create_stat_df('mu'),
                           create_stat_df('sd'),
-                          create_stat_df('zscore')
+                          create_stat_df('zscore'),
+                          create_stat_df('bayes_factor')
                           ])
-        return b_df
-
-    def create_mse_df(self):
-        '''
-        Create dataframe from b_mse dict
-        '''
-        b_df = pd.DataFrame.from_dict(self.b_mse, orient='index')
-        b_df.columns = ['mse']
-        b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
-                                                b_df.index])
-        return b_df
-
-    def create_logp_df(self):
-        '''
-        Create dataframe from b_mse dict
-        '''
-        b_df = pd.DataFrame.from_dict(self.b_logp, orient='index')
-        b_df.columns = ['logp']
-        b_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
-                                                b_df.index])
         return b_df
 
     def save(self, fn):
@@ -584,11 +642,8 @@ class Power():
                     yield pickle.load(open(fn, 'rb'))
 
         def create_stat_df(association, stat='waic'):
-            models = ['Two Stage', 'Joint']
             b_stat = dict((model, stats[stat])
-                          for model, stats in zip(models,
-                                                  association.b_stats)
-                          )
+                          for model, stats in association.b_stats.items())
             b_df = pd.DataFrame.from_dict(b_stat, orient='index')
             b_df.columns = [stat]
             b_df.index = pd.MultiIndex.from_tuples([(index, association.gene)
@@ -600,12 +655,13 @@ class Power():
             if association_dir:
                 associations = get_associations(association_dir)
 
-            freq, dic, waic, logp, zscore = [], [], [], [], [], []
+            freq, dic, waic, logp, zscore, bf = [], [], [], [], [], [], []
             for association in associations:
                 dic.append(create_stat_df(association, 'dic'))
                 waic.append(create_stat_df(association, 'waic'))
                 logp.append(create_stat_df(association, 'logp'))
                 zscore.append(create_stat_df(association, 'zscore'))
+                bf.append(create_stat_df(association, 'bayes_factor'))
                 freq.append(association.create_frequentist_df())
                 
             self.f_association_df = pd.concat(freq)
@@ -613,6 +669,7 @@ class Power():
             self.b_waic_df = pd.concat(waic)
             self.b_logp_df = pd.concat(logp)
             self.b_zscore_df = pd.concat(zscore)
+            self.b_bf_df = pd.concat(bf)
 
             self.f_estimator_df = create_estimator_df(self.f_association_df)
             logp_sort = lambda x: x.sort_values('logp', ascending=False)
@@ -623,6 +680,8 @@ class Power():
             self.waic_estimator_df = create_estimator_df(self.b_waic_df, waic_sort)
             zscore_sort = lambda x: x.sort_values('zscore', ascending=False)
             self.zscore_estimator_df = create_estimator_df(self.b_zscore_df, zscore_sort)
+            bf_sort = lambda x: x.sort_values('bayes_factor', ascending=False)
+            self.bf_estimator_df = create_estimator_df(self.b_bf_df, bf_sort)
 
 
         else:
@@ -643,8 +702,9 @@ class Power():
             self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), asc_sort)
             self.logp_estimator_df = create_estimator_df(b_df.xs('logp', level=2), des_sort)
             self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), asc_sort)
+            self.bf_estimator_df = create_estimator_df(b_df.xs('bayes_factor', level=2), des_sort)
             if 'zscore' in b_df.index.levels[2]:
-                self.zscore_
+                self.zscore_estimator_df = create_estimator_df(b_df.ixs('zscore', level=2), des_sort)
             else:
                 zscore_df = (b_df.xs('mu', level=2) / b_df.xs('sd', level=2)).applymap(abs)
                 self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
