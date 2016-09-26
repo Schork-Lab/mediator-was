@@ -622,7 +622,7 @@ class Power():
 
 
     def _create_association_dfs(self, associations=None, association_dir=None,
-                                pickled=True):
+                                pickled=False):
         '''
         Create dataframes that combine all association statistics
         '''
@@ -655,7 +655,7 @@ class Power():
             if association_dir:
                 associations = get_associations(association_dir)
 
-            freq, dic, waic, logp, zscore, bf = [], [], [], [], [], [], []
+            freq, dic, waic, logp, zscore, bf = [], [], [], [], [], []
             for association in associations:
                 dic.append(create_stat_df(association, 'dic'))
                 waic.append(create_stat_df(association, 'waic'))
