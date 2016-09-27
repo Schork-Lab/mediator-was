@@ -410,12 +410,12 @@ class Association(object):
                                        mediator_sd=w_bootstrap.std(),
                                        variational=False,
                                        n_chain=75000)
-        bf_trace = model.run(gwas_phen=phenotype,
+        bf_trace = bf_model.run(gwas_phen=phenotype,
                           gwas_mediator=w_bootstrap,
                           gwas_error=np.sqrt(sd_ui_bootstrap))
 
-        bf_stats = model.calculate_ppc(bf_trace)
-        p_alt = model.trace['mediator_model'].mean()
+        bf_stats = bf_model.calculate_ppc(bf_trace)
+        p_alt = bf_model.trace['mediator_model'].mean()
         bayes_factor = (p_alt/(1-p_alt))
         bf_stats['bayes_factor'] = bayes_factor
         self.b_stats[model.name] = bf_stats
@@ -425,10 +425,10 @@ class Association(object):
                                         mediator_sd=w_bootstrap.std(),
                                         variational=False,
                                         n_chain=75000)
-        me_trace = model.run(gwas_phen=phenotype,
+        me_trace = me_model.run(gwas_phen=phenotype,
                              gwas_mediator=w_bootstrap,
                              gwas_error=np.sqrt(sd_ui_bootstrap))
-        me_stats = model.calculate_ppc(me_trace)
+        me_stats = me_model.calculate_ppc(me_trace)
         me_stats['bayes_factor'] = 0
         self.b_stats[model.name] = me_stats
 
