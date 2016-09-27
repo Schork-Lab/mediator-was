@@ -773,7 +773,7 @@ class MeasurementError(BayesianModel):
                                       sd=gwas_error,
                                       shape=n_samples)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Uniform('alpha', -10, 10)
+            alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
             phenotype_mu = intercept + alpha * mediator

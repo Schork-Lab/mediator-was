@@ -405,19 +405,33 @@ class Association(object):
         w_bootstrap = np.mean(pred_expr, axis=0)
         sd_ui_bootstrap = np.std(pred_expr, ddof=1, axis=0)
 
-        model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
+        # Measurement Error Model w/ BF
+        bf_model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
                                        mediator_sd=w_bootstrap.std(),
                                        variational=False,
                                        n_chain=75000)
-        trace = model.run(gwas_phen=phenotype,
+        bf_trace = model.run(gwas_phen=phenotype,
                           gwas_mediator=w_bootstrap,
                           gwas_error=np.sqrt(sd_ui_bootstrap))
 
-        stats = model.calculate_ppc(trace)
+        bf_stats = model.calculate_ppc(bf_trace)
         p_alt = model.trace['mediator_model'].mean()
         bayes_factor = (p_alt/(1-p_alt))
-        stats['bayes_factor'] = bayes_factor
-        self.b_stats[model.name] = stats
+        bf_stats['bayes_factor'] = bayes_factor
+        self.b_stats[model.name] = bf_stats
+
+        # Measurement Error without BF
+        me_model = bay.MeasurementError(mediator_mu=w_bootstrap.mean(),
+                                        mediator_sd=w_bootstrap.std(),
+                                        variational=False,
+                                        n_chain=75000)
+        me_trace = model.run(gwas_phen=phenotype,
+                             gwas_mediator=w_bootstrap,
+                             gwas_error=np.sqrt(sd_ui_bootstrap))
+        me_stats = model.calculate_ppc(me_trace)
+        me_stats['bayes_factor'] = 0
+        self.b_stats[model.name] = me_stats
+
         return self.b_stats
 
     def _bayesian(self, gene, ):
