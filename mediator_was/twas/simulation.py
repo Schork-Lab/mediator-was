@@ -418,7 +418,7 @@ class Association(object):
         p_alt = bf_model.trace['mediator_model'].mean()
         bayes_factor = (p_alt/(1-p_alt))
         bf_stats['bayes_factor'] = bayes_factor
-        self.b_stats[model.name] = bf_stats
+        self.b_stats[bf_model.name] = bf_stats
 
         # Measurement Error without BF
         me_model = bay.MeasurementError(mediator_mu=w_bootstrap.mean(),
@@ -430,7 +430,7 @@ class Association(object):
                              gwas_error=np.sqrt(sd_ui_bootstrap))
         me_stats = me_model.calculate_ppc(me_trace)
         me_stats['bayes_factor'] = 0
-        self.b_stats[model.name] = me_stats
+        self.b_stats[me_model.name] = me_stats
 
         return self.b_stats
 
