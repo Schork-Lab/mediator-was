@@ -374,13 +374,13 @@ class BayesianModel(object):
         zscore = mean / sd
         return mean, sd, zscore
 
-    def _mb_generator(self, data):
+    def _mb_generator(self, data, size=500):
         """
         Generator for minibatches
         """
         rng = np.random.RandomState(0)
         while True:
-            ixs = rng.randint(len(data), size=500)
+            ixs = rng.randint(len(data), size=size)
             yield data[ixs]
 
 
@@ -500,7 +500,10 @@ class Joint(BayesianModel):
                                  mu=self.vars['coef_mean'],
                                  sd=self.vars['coef_sd'],
                                  shape=(1, n_snps))
-            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1)
+            mediator_mu = mediator_intercept + pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
             mediator = pm.Normal('mediator',
@@ -544,7 +547,10 @@ class Joint(BayesianModel):
                                  mu=0,
                                  tau=1 / total_variance,
                                  shape=(1, n_snps))
-            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1)
+            mediator_mu = mediator_intercept + pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
             mediator = pm.Normal('mediator',
@@ -585,7 +591,10 @@ class Joint(BayesianModel):
         with pm.Model() as phenotype_model:
             # Expression
             beta_med = pm.Laplace('beta_med', mu=0, b=1, shape=(1, n_snps),)
-            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1)
+            mediator_mu = mediator_intercept + pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
             mediator = pm.Normal('mediator',
@@ -665,10 +674,15 @@ class MultiStudyMultiTissue(BayesianModel):
                                   mu=0,
                                   b=self.vars['m_laplace_beta'],
                                   shape=(1, n_snps),)
-            mediator_gamma = pm.HalfCauchy('mediator_gamma',
-                                           beta=1,
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1,
                                            shape=n_tissues)
-            mediator_mu = mediator_gamma[self.med_idx] * pm.dot(beta_med, med_gen.T)            
+            mediator_gamma = pm.Uniform('mediator_gamma',
+                                        lower=0,
+                                        upper=1,
+                                        shape=n_tissues)
+            mediator_mu = mediator_intercept[self.med_idx] + mediator_gamma[self.med_idx] * pm.dot(beta_med, med_gen.T)            
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'],
                                            shape=n_tissues)
@@ -771,7 +785,8 @@ class MeasurementError(BayesianModel):
             mediator_meas = pm.Normal('mediator_meas',
                                       mu=mediator,
                                       sd=gwas_error,
-                                      shape=n_samples)
+                                      shape=n_samples,
+                                      observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
             alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
@@ -823,7 +838,8 @@ class MeasurementErrorBF(BayesianModel):
             mediator_meas = pm.Normal('mediator_meas',
                                       mu=mediator,
                                       sd=gwas_error,
-                                      shape=n_samples)
+                                      shape=n_samples,
+                                      observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
             alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
