@@ -846,15 +846,15 @@ class MeasurementErrorBF(BayesianModel):
                                             beta=self.vars['p_sigma_beta'])
             
             # Model 1
-            phenotype_mu_m1 = intercept
+            phenotype_mu_null = intercept
 
             # Model 2
-            phenotype_mu_m2 = intercept + alpha * mediator
+            phenotype_mu_mediator = intercept + alpha * mediator
 
             phen = pm.DensityDist('phen',
                                 lambda value: pm.switch(mediator_model, 
-                                    pm.Normal.dist(mu=phenotype_mu_m1, sd=phenotype_sigma).logp(value), 
-                                    pm.Normal.dist(mu=phenotype_mu_m2, sd=phenotype_sigma).logp(value)
+                                    pm.Normal.dist(mu=phenotype_mu_mediator, sd=phenotype_sigma).logp(value), 
+                                    pm.Normal.dist(mu=phenotype_mu_null, sd=phenotype_sigma).logp(value)
                                 ),
                                 observed=gwas_phen)
 
