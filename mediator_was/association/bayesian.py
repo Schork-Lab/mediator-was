@@ -766,7 +766,7 @@ class MeasurementError(BayesianModel):
                  mediator_sd,
                  m_laplace_beta=1,
                  p_sigma_beta=10, *args, **kwargs):
-        self.name = 'NonMediated'
+        self.name = 'MeasurementError'
         self.cv_vars = ['gwas_phen', 'gwas_gen']
         self.vars = {'mediator_mu': mediator_mu,
                      'mediator_sd': mediator_sd,
