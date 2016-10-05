@@ -419,8 +419,8 @@ class Association():
                                           variational=False,
                                           n_chain=75000)
         bf_trace = bf_model.run(gwas_phen=phen,
-                                gwas_mediator=mean_expr,
-                                gwas_error=np.sqrt(sigma_ui))
+                                gwas_mediator=mean_expr.values,
+                                gwas_error=np.sqrt(sigma_ui.values))
 
         bf_stats = bf_model.calculate_ppc(bf_trace)
         p_alt = bf_model.trace['mediator_model'].mean()
@@ -434,8 +434,8 @@ class Association():
                                         variational=False,
                                         n_chain=75000)
         me_trace = me_model.run(gwas_phen=phen,
-                                gwas_mediator=mean_expr,
-                                gwas_error=np.sqrt(sigma_ui))
+                                gwas_mediator=mean_expr.values,
+                                gwas_error=np.sqrt(sigma_ui.values))
         me_stats = me_model.calculate_ppc(me_trace)
         me_stats['bayes_factor'] = 0
         self.b_stats[me_model.name] = me_stats
