@@ -301,7 +301,7 @@ class Association():
                  associate=True,
                  permute=None,
                  min_p_inclusion=0.5,
-                 missing_filter=0.05):
+                 missing_filter=0.075):
 
         self.gene = gene.name
         self.study = study.name
@@ -406,6 +406,7 @@ class Association():
         Fit measurement error Bayesian model and compute a Bayes Factor
         and other statistics.
         '''
+        self.b_stats = {}
         bootstraps = [column for column in pred_expr.columns
                       if column not in ('full', 'twostage')]
         phen = self.gwas_phen.values
@@ -439,7 +440,7 @@ class Association():
         me_stats = me_model.calculate_ppc(me_trace)
         me_stats['bayes_factor'] = 0
         self.b_stats[me_model.name] = me_stats
-
+        print(self.b_stats)
         return self.b_stats
 
 
