@@ -5,7 +5,7 @@ import glob
 import pandas as pd
 
 
-def associate(gene_dir, study_prefix, out_prefix
+def associate(gene_dir, study_prefix, out_prefix,
               gtex=True, rlog=True):
     study = T.Study(study_prefix)
     if gtex:
