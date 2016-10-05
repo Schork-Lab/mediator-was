@@ -71,16 +71,16 @@ class Gene():
                                    rlog transformed
 
         """
-        self.alleles = self._load_gtex_alleles()
+        self.all_alleles = self._load_gtex_alleles()
         self.loci = self._load_gtex_loci()
-        self.alleles.columns = self.loci.index
+        self.all_alleles.columns = self.loci.index
         if self.gtex:
             data = self._load_gtex_expression()
         else:
             data = self._load_rlog_expression()
         self.expression, self.covariates, self.elasticnet = data
         self.samples = self.expression.index
-        self.alleles = self.alleles.ix[self.samples]
+        self.alleles = self.all_alleles.ix[self.samples]
         return
 
     def _retrain(self, twostage=True):
@@ -296,27 +296,13 @@ class Association():
     """
     Compute association statistics between a study's phenotype and
     gene.
-
-    Attributes:
-        f_assoc (TYPE): Description
-        gene (TYPE): Description
-        gtex_gen (TYPE): Description
-        gtex_phen (TYPE): Description
-        gwas_gen (TYPE): Description
-        gwas_phen (TYPE): Description
-        study (TYPE): Description
     """
     def __init__(self, gene, study,
                  associate=True,
                  permute=None,
                  min_p_inclusion=0.5,
                  missing_filter=0.05):
-        """Summary
 
-        Args:
-            gene (TYPE): Description
-            study (TYPE): Description
-        """
         self.gene = gene.name
         self.study = study.name
         self.elasticnet = gene.elasticnet
@@ -328,14 +314,10 @@ class Association():
         self._predict_expression(gene)
         self.f_stats = None
         self.b_stats = None
-        self.permute_stats = None
 
         if associate:
             self._load_phenotypes(gene, study)
             self.associate()
-        if permute is not None:
-            n_permutations, random_state = permute
-            self.permute(n_permutations, random_state)
 
         return
 
@@ -400,28 +382,14 @@ class Association():
             pred_expr.append(expression)
         self.pred_expr = pd.concat(pred_expr, axis=1)
 
-    def _generate_kfolds(self, k=10, seed=0):
-        '''
-        Generate train and testing folds foruse in cross-validation
-        for Bayesian inference. Uses a seed to insure the same folds are used
-        for each association task.
+    def associate(self, inter_gt=1):
+        """
+        Run Bayesian and Frequentist measurement error associations.
+        Filter heritable genes based on
+        inter_gt * inter-individual variance > intra-ind variance.
 
-        TODO: StratifiedKFold for case/control studies
+        inter_gt - constant (default: 1)
 
-        Args:
-            study (Study): Study object
-            k (int, optional): number of folds (default: 10)
-            seed (int, optional): consistent random state (default: 0)
-        '''
-        self.kfolds = KFold(self.gwas_gen.shape[0], n_folds=k,
-                            random_state=seed)
-        return
-
-    def associate(self, **bayesian_args):
-        """Summary
-
-        Returns:
-            TYPE: Description
         """
         inter_var = self.pred_expr.mean(axis=1).var(ddof=1)
         intra_var = self.pred_expr.var(axis=1, ddof=1).mean()
@@ -430,90 +398,50 @@ class Association():
         if 1.1*inter_var > intra_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
-            self._bayesian(**bayesian_args)
+            self._bayesian(self.pred_expr)
         return
 
-    def _bayesian(self, joint=True, ts=False, joint_prior=False):
-        """
-        Fit three different Bayesian Linear Regressions using
-        only SNPS filtered using ElasticNet.
+    def _bayesian(self, pred_expr):
+        '''
+        Fit measurement error Bayesian model and compute a Bayes Factor
+        and other statistics.
+        '''
+        bootstraps = [column for column in pred_expr.columns
+                      if column not in ('full', 'twostage')]
+        phen = self.gwas_phen.values
+        bootstrap_expr = pred_expr[bootstraps]
+        mean_expr = bootstrap_expr.mean(axis=1)
+        sigma_ui = bootstrap_expr.var(ddof=1, axis=1)
 
-        1. Simple Bayesian Regression (Using EN Priors)
-        2. Joint Bayesian Linear Regression (LaPlace)
-        3. Joint Bayesian Linear Regression (Using EN Priors)
+        # Measurement Error Model w/ BF
+        bf_model = bay.MeasurementErrorBF(mediator_mu=mean_expr.mean(),
+                                          mediator_sd=mean_expr.std(),
+                                          variational=False,
+                                          n_chain=75000)
+        bf_trace = bf_model.run(gwas_phen=phen,
+                                gwas_mediator=mean_expr,
+                                gwas_error=np.sqrt(sigma_ui))
 
-        Returns:
-            dict: Bayesian Statistics
-        """
+        bf_stats = bf_model.calculate_ppc(bf_trace)
+        p_alt = bf_model.trace['mediator_model'].mean()
+        bayes_factor = (p_alt/(1-p_alt))
+        bf_stats['bayes_factor'] = bayes_factor
+        self.b_stats[bf_model.name] = bf_stats
 
-        # # First stage filter for TwoStage Model
-        # self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
-        # self.included_snps = list(set(self.loci).intersection(self.included_snps))
-        self.b_stats = {}
-        self.b_traces = {}
+        # Measurement Error without BF
+        me_model = bay.MeasurementError(mediator_mu=mean_expr.mean(),
+                                        mediator_sd=mean_expr.std(),
+                                        variational=False,
+                                        n_chain=75000)
+        me_trace = me_model.run(gwas_phen=phen,
+                                gwas_mediator=mean_expr,
+                                gwas_error=np.sqrt(sigma_ui))
+        me_stats = me_model.calculate_ppc(me_trace)
+        me_stats['bayes_factor'] = 0
+        self.b_stats[me_model.name] = me_stats
 
-        coefs = self.elasticnet[self.elasticnet['id'].isin(self.included_snps)]
-        coefs = coefs[~coefs['bootstrap'].isin(['full', 'twostage'])]
-        coef_mean = coefs.groupby('id')['beta'].mean().values
-        coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
+        return self.b_stats
 
-        if ts:
-            ts_model = bay.TwoStage(coef_mean, coef_sd,
-                                    variational=True, mb=False, n_chain=50000)
-            ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_snps].values,
-                                    gwas_phen=self.gwas_phen.values)
-            ts_stats = ts_model.calculate_ppc(ts_trace)
-            self.b_traces['ts'] = ts_trace
-            self.b_stats['ts'] = ts_stats
-
-        if joint:
-            j_model = bay.Joint(model_type='laplace',
-                                variational=True, mb=True, n_chain=50000)
-            j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
-                                  med_phen=self.gtex_phen.values.ravel(),
-                                  gwas_gen=self.gwas_gen[self.included_snps].values,
-                                  gwas_phen=self.gwas_phen.values)
-            j_stats = j_model.calculate_ppc(j_trace)
-            self.b_traces['Joint_LaPlace'] = j_trace
-            self.b_stats['Joint_LaPlace'] = j_stats
-
-        if joint_prior:
-            j_model2 = bay.Joint(model_type='prior',
-                                 coef_mean=coef_mean,
-                                 coef_sd=coef_sd,
-                                 variational=True, mb=True, n_chain=50000)
-            j_trace2 = j_model2.run(med_gen=self.gtex_gen[self.included_snps].values,
-                                   med_phen=self.gtex_phen.values.ravel(),
-                                   gwas_gen=self.gwas_gen[self.included_snps].values,
-                                   gwas_phen=self.gwas_phen.values)
-            j_stats2 = j_model2.calculate_ppc(j_trace2)
-            self.b_traces['Joint_Prior'] = j_trace2
-            self.b_stats['Joint_Prior'] = j_stats2
-
-        print(self.b_stats)
-        return
-
-    def permute(self, n_permutations=10, random_state=0):
-        self.permute_stats = []
-        j_model = bay.Joint(model_type='laplace',
-                            variational=True,
-                            mb=True,
-                            n_chain=50000)
-
-        for i in range(n_permutations):
-            random_state = random_state * i + i
-            gwas_phen = resample(self.gwas_phen.values,
-                                 replace=False,
-                                 random_state=random_state)
-
-            j_trace = j_model.run(med_gen=self.gtex_gen[self.included_snps].values,
-                                  med_phen=self.gtex_phen.values.ravel(),
-                                  gwas_gen=self.gwas_gen[self.included_snps].values,
-                                  gwas_phen=gwas_phen)
-            j_stats = j_model.calculate_ppc(j_trace)
-            self.permute_stats.append({'Permuted-Joint-LaPlace': j_stats})
-
-        return
 
     def _frequentist(self, pred_expr):
         """
