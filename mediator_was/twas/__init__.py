@@ -430,16 +430,16 @@ class Association():
         self.b_stats[bf_model.name] = bf_stats
 
         # Measurement Error without BF
-        me_model = bay.MeasurementError(mediator_mu=mean_expr.mean(),
-                                        mediator_sd=mean_expr.std(),
-                                        variational=False,
-                                        n_chain=75000)
-        me_trace = me_model.run(gwas_phen=phen,
-                                gwas_mediator=mean_expr.values,
-                                gwas_error=np.sqrt(sigma_ui.values))
-        me_stats = me_model.calculate_ppc(me_trace)
-        me_stats['bayes_factor'] = 0
-        self.b_stats[me_model.name] = me_stats
+        # me_model = bay.MeasurementError(mediator_mu=mean_expr.mean(),
+        #                                 mediator_sd=mean_expr.std(),
+        #                                 variational=False,
+        #                                 n_chain=75000)
+        # me_trace = me_model.run(gwas_phen=phen,
+        #                         gwas_mediator=mean_expr.values,
+        #                         gwas_error=np.sqrt(sigma_ui.values))
+        # me_stats = me_model.calculate_ppc(me_trace)
+        # me_stats['bayes_factor'] = 0
+        # self.b_stats[me_model.name] = me_stats
         print(self.b_stats)
         return self.b_stats
 
