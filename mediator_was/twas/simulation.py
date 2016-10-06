@@ -561,7 +561,7 @@ class Power():
     '''
 
     def __init__(self, study=None, associations=None, association_dir=None,
-                 pickled=True):
+                 pickled=False):
         if association_dir:
             self.association_dir = association_dir
             study_file = glob.glob(association_dir + '*study.pkl')[0]
