@@ -314,6 +314,7 @@ class Association():
         self._predict_expression(gene)
         self.f_stats = None
         self.b_stats = None
+        self.permute_stats = None
 
         if associate:
             self._load_phenotypes(gene, study)
