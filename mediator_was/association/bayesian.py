@@ -698,11 +698,13 @@ class MultiStudyMultiTissue(BayesianModel):
             # alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
-                                            beta=1)
-            phenotype_mu = intercept[self.gwas_idx] + alpha[self.gwas_idx] * phenotype_expression_mu
+                                            beta=1,
+                                            shape=n_studies)
+            phen_mu = intercept[self.gwas_idx] + alpha[self.gwas_idx] * phenotype_expression_mu
+            phen_sigma = phenotype_sigma[self.gwas_idx]
             phen = pm.Normal('phen',
-                             mu=phenotype_mu,
-                             sd=phenotype_sigma,
+                             mu=phen_mu,
+                             sd=phen_sigma,
                              observed=gwas_phen)
 
         if self.variational and self.mb:
@@ -788,7 +790,8 @@ class MeasurementError(BayesianModel):
                                       shape=n_samples,
                                       observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Normal('alpha', mu=0, sd=1)
+            alpha = pm.Uniform('alpha', lower=-10, upper=10)
+            #alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
             phenotype_mu = intercept + alpha * mediator
@@ -812,7 +815,6 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
-                 m_laplace_beta=1,
                  p_sigma_beta=10, *args, **kwargs):
         self.name = 'MeasurementErrorBF'
         self.cv_vars = ['gwas_phen', 'gwas_gen']
@@ -841,7 +843,8 @@ class MeasurementErrorBF(BayesianModel):
                                       shape=n_samples,
                                       observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Normal('alpha', mu=0, sd=1)
+            alpha = pm.Uniform('alpha', lower=-5, upper=5)
+            #alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
             
