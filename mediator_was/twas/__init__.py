@@ -418,6 +418,7 @@ class Association():
         # Measurement Error Model w/ BF
         bf_model = bay.MeasurementErrorBF(mediator_mu=mean_expr.mean(),
                                           mediator_sd=mean_expr.std(),
+                                          uniform_alpha=False,
                                           variational=False,
                                           n_chain=75000)
         bf_trace = bf_model.run(gwas_phen=phen,

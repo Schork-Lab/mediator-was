@@ -815,11 +815,13 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
+                 uniform_alpha=True,
                  p_sigma_beta=10, *args, **kwargs):
         self.name = 'MeasurementErrorBF'
         self.cv_vars = ['gwas_phen', 'gwas_gen']
         self.vars = {'mediator_mu': mediator_mu,
                      'mediator_sd': mediator_sd,
+                     'uniform_alpha': uniform_alpha,
                      'p_sigma_beta': p_sigma_beta,
                      }
         super(MeasurementErrorBF, self).__init__(*args, **kwargs)
@@ -843,8 +845,10 @@ class MeasurementErrorBF(BayesianModel):
                                       shape=n_samples,
                                       observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Uniform('alpha', lower=-5, upper=5)
-            #alpha = pm.Normal('alpha', mu=0, sd=1)
+            if self.vars['uniform_alpha']:
+                alpha = pm.Uniform('alpha', lower=-5, upper=5)
+            else:
+                alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
             
