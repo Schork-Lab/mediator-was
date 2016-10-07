@@ -301,7 +301,7 @@ class Association():
                  associate=True,
                  permute=None,
                  min_p_inclusion=0.5,
-                 missing_filter=0.075):
+                 missing_filter=0.1):
 
         self.gene = gene.name
         self.study = study.name
