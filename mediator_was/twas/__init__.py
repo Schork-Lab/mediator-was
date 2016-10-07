@@ -217,7 +217,7 @@ class Study():
         self.phen = {}
         for fn in glob.glob(phen_prefix_path + '*.liab'):
             chrom = fn.split('.')[-2]
-            fn = phen_prefix_path + ".liab_all" # REMOVE THIS LATER!!!!!
+            #fn = phen_prefix_path + ".liab_all" # REMOVE THIS LATER!!!!!
             df = pd.read_table(fn, index_col=0, names=['phen'])
             self.phen[chrom] = df.ix[self.samples]
         # self.case_control = pd.read_table(phen_prefix_path + '.fam',
