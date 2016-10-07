@@ -12,6 +12,8 @@ def associate(gene_dir, study_prefix, out_prefix,
       gene = T.Gene(gene_dir)
       association = T.Association(gene, study)
       association.save(out_prefix+'.gtex')
+      del association
+      del gene
     if rlog:
       gene = T.Gene(gene_dir, gtex=False)
       association = T.Association(gene, study)
