@@ -34,7 +34,7 @@ def aggregate(association_dir, prefix=None):
       print('{} frequentist files found.'.format(len(fns)))
       f_df = pd.concat([reader(fn)
                         for fn in fns if fn.find('aggregated') == -1])
-      f_df.to_csv(".".join([prefix, 'aggregated.fstats.tsv']),
+      f_df.to_csv(".".join([prefix, '{}.aggregated.fstats.tsv'.format(expr_type)]),
                   sep='\t', index=False)
 
       fns = glob.glob(os.path.join(association_dir,
@@ -42,7 +42,7 @@ def aggregate(association_dir, prefix=None):
       print('{} bayesian files found.'.format(len(fns)))
       b_df = pd.concat([b_reader(fn)
                       for fn in fns if fn.find('aggregated') == -1])
-      b_df.to_csv(".".join([prefix, 'aggregated.bstats.tsv']),
+      b_df.to_csv(".".join([prefix, '{}.aggregated.bstats.tsv'.format(expr_type)]),
                   sep='\t', index=False)
     return
 
