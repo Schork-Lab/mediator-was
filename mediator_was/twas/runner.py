@@ -20,7 +20,7 @@ def associate(gene_dir, study_prefix, out_prefix,
       association.save(out_prefix+'.rlog')      
     return
 
-def aggregate(association_dir, prefix=None):
+def aggregate(association_dir, prefix=''):
     def reader(fn):
        try: 
            return pd.read_table(fn, sep='\t')
@@ -40,7 +40,7 @@ def aggregate(association_dir, prefix=None):
       fns = glob.glob(os.path.join(association_dir,
                       '{}*{}.bstats.tsv'.format(prefix, expr_type)))
       print('{} bayesian files found.'.format(len(fns)))
-      b_df = pd.concat([b_reader(fn)
+      b_df = pd.concat([reader(fn)
                       for fn in fns if fn.find('aggregated') == -1])
       b_df.to_csv(".".join([prefix, '{}.aggregated.bstats.tsv'.format(expr_type)]),
                   sep='\t', index=False)
