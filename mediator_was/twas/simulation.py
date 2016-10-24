@@ -304,7 +304,7 @@ class Association(object):
         b_mse - mse using out of sample samples
         b_zscore - zscore equivalent statistic for alpha
     '''
-    def __init__(self, name, gene, study, seed=0, associate=True, me=True, heritability=0.2/400):
+    def __init__(self, name, gene, study, seed=0, associate=True, me=True, heritability=0.2/4000):
         R.seed(seed)
         self.name = name
         self.gene = gene.id
