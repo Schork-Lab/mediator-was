@@ -670,6 +670,7 @@ class MultiStudyMultiTissue(BayesianModel):
 
         with pm.Model() as phenotype_model:
             # Expression
+            
             beta_med = pm.Laplace('beta_med',
                                   mu=0,
                                   b=self.vars['m_laplace_beta'],
@@ -815,13 +816,15 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
-                 uniform_alpha=True,
+                 var_p=1,
+                 heritability=0.1,
                  p_sigma_beta=10, *args, **kwargs):
         self.name = 'MeasurementErrorBF'
         self.cv_vars = ['gwas_phen', 'gwas_gen']
         self.vars = {'mediator_mu': mediator_mu,
                      'mediator_sd': mediator_sd,
-                     'uniform_alpha': uniform_alpha,
+                     'heritability': heritability,
+                     'var_p': var_p,
                      'p_sigma_beta': p_sigma_beta,
                      }
         super(MeasurementErrorBF, self).__init__(*args, **kwargs)
@@ -845,13 +848,26 @@ class MeasurementErrorBF(BayesianModel):
                                       shape=n_samples,
                                       observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            if self.vars['uniform_alpha']:
-                alpha = pm.Uniform('alpha', lower=-5, upper=5)
-            else:
-                alpha = pm.Normal('alpha', mu=0, sd=1)
+
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            
+            heritability = self.vars['heritability']
+            md_var = self.vars['mediator_sd'] ** 2
+            p_var = phenotype_sigma ** 2
+            h = np.sqrt(heritability)
+            h = heritability
+            #alpha = pm.Normal('alpha', mu=0, tau=((1-heritability) * self.vars['mediator_sd'] ** 2/(heritability*(phenotype_sigma ** 2))))
+            estimated_alpha = np.sqrt((p_var*h)/((1-h)*md_var))
+            #alpha = pm.Normal('alpha', mu=0, sd=np.sqrt(estimated_alpha))
+            alpha = pm.Uniform('alpha', -5, 5)
+            #alpha = pm.Normal('alpha', mu=0, sd=1)
+            # h2 = x / (x + y)
+            # (y+x)h = x
+            # yh + xh = x
+            # yh = x - xh
+            # yh = x (1 - h)
+            # yh/(1-h)
+
             # Model 1
             phenotype_mu_null = intercept
 

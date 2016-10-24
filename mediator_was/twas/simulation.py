@@ -304,13 +304,14 @@ class Association(object):
         b_mse - mse using out of sample samples
         b_zscore - zscore equivalent statistic for alpha
     '''
-    def __init__(self, name, gene, study, seed=0, associate=True, me=True):
+    def __init__(self, name, gene, study, seed=0, associate=True, me=True, heritability=0.2/400):
         R.seed(seed)
         self.name = name
         self.gene = gene.id
         self.study = study.id
         self.phenotype = study.phenotype
         self.oos_phenotype = study.oos_phenotype
+        self.heritability = heritability
 
         if gene.id in study.gene_map:
             self.genotype = study.genotypes[study.gene_map[gene.id]]
@@ -408,6 +409,7 @@ class Association(object):
         # Measurement Error Model w/ BF
         bf_model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
                                        mediator_sd=w_bootstrap.std(),
+                                       heritability=self.heritability,
                                        variational=False,
                                        n_chain=75000)
         bf_trace = bf_model.run(gwas_phen=phenotype,
