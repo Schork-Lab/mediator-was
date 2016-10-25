@@ -116,7 +116,7 @@ class BayesianModel(object):
     '''
 
     def __init__(self, variational=True, mb=False, n_chain=50000,
-                 logistic=False):
+                 logistic=False, steps=None):
         """
         Args:
             variational (bool, optional): Use Variational Inference
@@ -127,6 +127,7 @@ class BayesianModel(object):
         self.mb = mb
         self.n_chain = n_chain
         self.logistic = logistic
+        self.steps = None
 
     def cache_model(self, **inputs):
         """
@@ -223,9 +224,14 @@ class BayesianModel(object):
                 trace = pm.variational.sample_vp(v_params, draws=n_trace)
                 self.v_params = v_params
             else:
+                if self.steps is None:
+                    self.steps = pm.Metropolis()
                 start = pm.find_MAP()
-                trace = pm.sample(self.n_chain, step=pm.Metropolis(),
-                                  start=start, progressbar=True)
+                trace = pm.sample(self.n_chain,
+                                  step=self.steps,
+                                  start=start,
+                                  progressbar=True,
+                                  )
                 trace = trace[-n_trace:]
         self.trace = trace
         return trace
@@ -816,7 +822,7 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
-                 precomp_med=True,
+                 precomp_med=False,
                  heritability=0.1,
                  p_sigma_beta=10, *args, **kwargs):
         self.name = 'MeasurementErrorBF'
@@ -851,18 +857,16 @@ class MeasurementErrorBF(BayesianModel):
 
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            heritability = self.vars['heritability']
-
             p_var = t.sqr(phenotype_sigma)
-            h = heritability
+            h = self.vars['heritability']
             var_explained = (p_var*h)/(1-h)
             if self.vars['precomp_med']:
-                md_var = self.vars['mediator_sd'] ** 2
-                md_mean_sq = self.vars['mediator_mu'] ** 2
+                md_var = np.mean(self.vars['mediator_sd'] ** 2)
+                md_mean_sq = np.mean(self.vars['mediator_mu']) ** 2
             else:
                 md_var = t.var(mediator)
                 md_mean_sq = t.sqr(t.mean(mediator))
-            var_alpha = var_explained/(md_var+md_mean_sq)
+            var_alpha = var_explained/(md_var + md_mean_sq)
             alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
  
             # Model 1
@@ -877,6 +881,8 @@ class MeasurementErrorBF(BayesianModel):
                                     pm.Normal.dist(mu=phenotype_mu_null, sd=phenotype_sigma).logp(value)
                                 ),
                                 observed=gwas_phen)
+            self.steps = [pm.BinaryGibbsMetropolis(vars=[mediator_model]),
+                          pm.Metropolis()]
 
         if self.variational and self.mb:
             self.minibatch_RVs = [phen]

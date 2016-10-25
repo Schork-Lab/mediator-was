@@ -419,11 +419,14 @@ class Association(object):
         w_bootstrap = w_bootstrap - w_bootstrap.mean()
 
         # Mediator standard deviation
-        mediator_sd = np.sqrt(w_bootstrap.var(ddof=1) - sigma_ui_bootstrap.mean())
+        mediator_mu = np.ones(shape=w_bootstrap.shape) * w_bootstrap.mean()
+        mediator_var = np.ones(shape=w_bootstrap.shape)*w_bootstrap.var(ddof=1) - sigma_ui_bootstrap
+        mediator_var[np.where(mediator_var < 0)] = 10e-5
+        mediator_sd = np.sqrt(mediator_var)
 
 
         # Measurement Error Model w/ BF
-        bf_model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
+        bf_model = bay.MeasurementErrorBF(mediator_mu=mediator_mu,
                                        mediator_sd=mediator_sd,
                                        heritability=self.heritability,
                                        variational=False,
