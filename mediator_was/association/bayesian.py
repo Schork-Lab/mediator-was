@@ -853,28 +853,18 @@ class MeasurementErrorBF(BayesianModel):
                                             beta=self.vars['p_sigma_beta'])
             heritability = self.vars['heritability']
 
-            p_var = phenotype_sigma ** 2
-            h = np.sqrt(heritability)
+            p_var = t.sqr(phenotype_sigma)
             h = heritability
-            #alpha = pm.Normal('alpha', mu=0, tau=((1-heritability) * self.vars['mediator_sd'] ** 2/(heritability*(phenotype_sigma ** 2))))
             var_explained = (p_var*h)/(1-h)
             if self.vars['precomp_med']:
                 md_var = self.vars['mediator_sd'] ** 2
                 md_mean_sq = self.vars['mediator_mu'] ** 2
             else:
                 md_var = t.var(mediator)
-                md_mean_sq = t.mean(mediator) ** 2
+                md_mean_sq = t.sqr(t.mean(mediator))
             var_alpha = var_explained/(md_var+md_mean_sq)
-            alpha = pm.Normal('alpha', mu=0, sd=np.sqrt(var_alpha))
-            #alpha = pm.Uniform('alpha', -5, 5)
-            #alpha = pm.Normal('alpha', mu=0, sd=1)
-            # h2 = x / (x + y)
-            # (y+x)h = x
-            # yh + xh = x
-            # yh = x - xh
-            # yh = x (1 - h)
-            # yh/(1-h)
-
+            alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
+ 
             # Model 1
             phenotype_mu_null = intercept
 

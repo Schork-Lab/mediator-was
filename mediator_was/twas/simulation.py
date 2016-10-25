@@ -69,7 +69,6 @@ def _fit_bootstrapped_EN(bootstrap_params, genotypes, expression):
     l1_ratio_range = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
     full_model = model(l1_ratio=l1_ratio_range, max_iter=10000)
     full_model.fit(genotypes, expression)
-
     model = sklearn.linear_model.ElasticNet
     for i in range(bootstrap_params[1]):
         b_genotypes, b_expression = sklearn.utils.resample(genotypes,
@@ -80,7 +79,7 @@ def _fit_bootstrapped_EN(bootstrap_params, genotypes, expression):
                         l1_ratio=full_model.l1_ratio_)
         b_model = b_model.fit(b_genotypes, b_expression)
         b_models.append(b_model)
-    return b_models
+    return full_model, b_models
 
 
 def _fit_OLS(genotypes, expression):
@@ -175,7 +174,7 @@ class Gene():
 
     def _train(self):
         self.train_genotypes, self.train_expression = self.simulate(train=True)
-        self.bootstrap_models = _fit_bootstrapped_EN(self.bootstrap_params,
+        self.full_model, self.bootstrap_models = _fit_bootstrapped_EN(self.bootstrap_params,
                                                      self.train_genotypes,
                                                      self.train_expression)
         # self.bayesian_model = bay.expression_model(self.train_genotypes,
@@ -367,6 +366,14 @@ class Association(object):
         w_bootstrap = np.mean(pred_expr, axis=0)
         sigma_ui_bootstrap = np.var(pred_expr, ddof=1, axis=0)
 
+        # Full
+        try:
+            full_expr = gene.full_model.predict(genotype)
+        except:
+            print("Full model not found. Taking first bootstrap as full expression")
+            full_expr = pred_expr[0]
+
+
         # Two-stage bootstrap
         # elasticnet = pd.DataFrame([model.coef_
         #                            for model in gene.bootstrap_models])
@@ -379,7 +386,7 @@ class Association(object):
         # ts_expr = full_model.predict(genotype[:, columns])
 
         association = {'OLS-Mean': t(w_bootstrap, phenotype, method="OLS"),
-                       'OLS-ElasticNet': t(pred_expr[0], phenotype,
+                       'OLS-ElasticNet': t(full_expr, phenotype,
                                            method="OLS"),
                        'RC-hetero-bootstrapped': t(w_bootstrap, phenotype,
                                                    sigma_ui_bootstrap,
@@ -406,15 +413,20 @@ class Association(object):
         w_bootstrap = np.mean(pred_expr, axis=0)
         sd_ui_bootstrap = np.std(pred_expr, ddof=1, axis=0)
 
+        # Center
+        phenotype = phenotype - np.mean(phenotype)
+        w_bootstrap = w_bootstrap - w_bootstrap.mean()
+
+
         # Measurement Error Model w/ BF
         bf_model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
-                                       mediator_sd=w_bootstrap.std(),
+                                       mediator_sd=w_bootstrap.std()-sd_ui_bootstrap.mean(),
                                        heritability=self.heritability,
                                        variational=False,
                                        n_chain=75000)
         bf_trace = bf_model.run(gwas_phen=phenotype,
-                          gwas_mediator=w_bootstrap,
-                          gwas_error=sd_ui_bootstrap)
+                                gwas_mediator=w_bootstrap,
+                                gwas_error=sd_ui_bootstrap)
 
         bf_stats = bf_model.calculate_ppc(bf_trace)
         p_alt = bf_model.trace['mediator_model'].mean()
