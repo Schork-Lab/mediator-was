@@ -9,6 +9,7 @@ import pymc3 as pm
 import numpy as np
 from theano import shared
 from scipy.stats.distributions import pareto
+from scipy import optimize
 import theano.tensor as t
 
 
@@ -226,7 +227,7 @@ class BayesianModel(object):
             else:
                 if self.steps is None:
                     self.steps = pm.Metropolis()
-                start = pm.find_MAP()
+                start = pm.find_MAP(fmin=optimize.fmin_powell)
                 trace = pm.sample(self.n_chain,
                                   step=self.steps,
                                   start=start,
@@ -822,7 +823,7 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
-                 precomp_med=False,
+                 precomp_med=True,
                  heritability=0.1,
                  p_sigma_beta=10, *args, **kwargs):
         self.name = 'MeasurementErrorBF'
@@ -857,17 +858,23 @@ class MeasurementErrorBF(BayesianModel):
 
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            p_var = t.sqr(phenotype_sigma)
-            h = self.vars['heritability']
-            var_explained = (p_var*h)/(1-h)
+
             if self.vars['precomp_med']:
-                md_var = np.mean(self.vars['mediator_sd'] ** 2)
-                md_mean_sq = np.mean(self.vars['mediator_mu']) ** 2
+                p_var = t.sqr(phenotype_sigma)
+                h = self.vars['heritability']
+                var_explained = (p_var*h)/(1-h)
+                md_var = np.square(np.mean(self.vars['mediator_sd']))
+                md_mean_sq = np.square(np.mean(self.vars['mediator_mu'])) 
+                var_alpha = var_explained/(md_var + md_mean_sq)
+                alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
             else:
+                p_var = t.sqr(phenotype_sigma)
+                h = self.vars['heritability']
+                var_explained = (p_var*h)/(1-h)
                 md_var = t.var(mediator)
                 md_mean_sq = t.sqr(t.mean(mediator))
-            var_alpha = var_explained/(md_var + md_mean_sq)
-            alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
+                var_alpha = var_explained/(md_var + md_mean_sq)
+                alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
  
             # Model 1
             phenotype_mu_null = intercept
