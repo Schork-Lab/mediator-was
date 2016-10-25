@@ -816,7 +816,7 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
-                 var_p=1,
+                 precomp_med=True,
                  heritability=0.1,
                  p_sigma_beta=10, *args, **kwargs):
         self.name = 'MeasurementErrorBF'
@@ -824,8 +824,8 @@ class MeasurementErrorBF(BayesianModel):
         self.vars = {'mediator_mu': mediator_mu,
                      'mediator_sd': mediator_sd,
                      'heritability': heritability,
-                     'var_p': var_p,
                      'p_sigma_beta': p_sigma_beta,
+                     'precomp_med': precomp_med,
                      }
         super(MeasurementErrorBF, self).__init__(*args, **kwargs)
 
@@ -852,14 +852,19 @@ class MeasurementErrorBF(BayesianModel):
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
             heritability = self.vars['heritability']
-            md_var = self.vars['mediator_sd'] ** 2
-            md_mean_sq = self.vars['mediator_mu'] ** 2
+
             p_var = phenotype_sigma ** 2
             h = np.sqrt(heritability)
             h = heritability
             #alpha = pm.Normal('alpha', mu=0, tau=((1-heritability) * self.vars['mediator_sd'] ** 2/(heritability*(phenotype_sigma ** 2))))
             var_explained = (p_var*h)/(1-h)
-            var_alpha = var_explained/(md_var*md_mean_sq)
+            if self.vars['precomp_med']:
+                md_var = self.vars['mediator_sd'] ** 2
+                md_mean_sq = self.vars['mediator_mu'] ** 2
+            else:
+                md_var = t.var(mediator)
+                md_mean_sq = t.mean(mediator) ** 2
+            var_alpha = var_explained/(md_var+md_mean_sq)
             alpha = pm.Normal('alpha', mu=0, sd=np.sqrt(var_alpha))
             #alpha = pm.Uniform('alpha', -5, 5)
             #alpha = pm.Normal('alpha', mu=0, sd=1)

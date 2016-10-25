@@ -713,6 +713,7 @@ class Power():
                                                               '*.bassoc.tsv'))
                              ])
             b_df['value'] = b_df['value'].astype(float)
+            self.b_df = b_df
             des_sort = lambda x: x.sort_values('value', ascending=False)
             asc_sort = lambda x: x.sort_values('value')
             self.dic_estimator_df = create_estimator_df(b_df.xs('dic', level=2), asc_sort)
@@ -720,7 +721,7 @@ class Power():
             self.waic_estimator_df = create_estimator_df(b_df.xs('waic', level=2), asc_sort)
             self.bf_estimator_df = create_estimator_df(b_df.xs('bayes_factor', level=2), des_sort)
             if 'zscore' in b_df.index.levels[2]:
-                self.zscore_estimator_df = create_estimator_df(b_df.xs('zscore', level=2), des_sort)
+                self.zscore_estimator_df = create_estimator_df(b_df.xs('zscore', level=2).applymap(abs), des_sort)
             else:
                 zscore_df = (b_df.xs('mu', level=2) / b_df.xs('sd', level=2)).applymap(abs)
                 self.zscore_estimator_df = create_estimator_df(zscore_df, des_sort)
