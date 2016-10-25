@@ -411,16 +411,20 @@ class Association(object):
         bms = gene.bootstrap_models
         pred_expr = np.array([m.predict(genotype) for m in bms])
         w_bootstrap = np.mean(pred_expr, axis=0)
+        sigma_ui_bootstrap = np.var(pred_expr, ddof=1, axis=0)
         sd_ui_bootstrap = np.std(pred_expr, ddof=1, axis=0)
 
         # Center
         phenotype = phenotype - np.mean(phenotype)
         w_bootstrap = w_bootstrap - w_bootstrap.mean()
 
+        # Mediator standard deviation
+        mediator_sd = np.sqrt(w_bootstrap.var(ddof=1) - sigma_ui_bootstrap.mean())
+
 
         # Measurement Error Model w/ BF
         bf_model = bay.MeasurementErrorBF(mediator_mu=w_bootstrap.mean(),
-                                       mediator_sd=w_bootstrap.std()-sd_ui_bootstrap.mean(),
+                                       mediator_sd=mediator_sd,
                                        heritability=self.heritability,
                                        variational=False,
                                        n_chain=75000)
