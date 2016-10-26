@@ -539,8 +539,8 @@ class Association():
         inter_var = self.pred_expr[bootstraps].mean(axis=1).var(ddof=1)
         intra_var = self.pred_expr[bootstraps].var(axis=1, ddof=1).mean()
         with open(file_prefix + '.variance', 'w') as OUT:
-            OUT.write('Intra-variance\t{}\n'.format(intra_var))
-            OUT.write('Inter-variance\t{}\n'.format(inter_var))
+            OUT.write('Intra-variance\t{}\t{}\n'.format(self.gene, intra_var))
+            OUT.write('Inter-variance\t{}\t{}\n'.format(self.gene, inter_var))
         
         if self.f_stats is not None:
             f_df = pd.DataFrame.from_dict(self.f_stats, orient='index')
