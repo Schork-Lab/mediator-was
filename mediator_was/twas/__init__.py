@@ -301,6 +301,7 @@ class Association():
                  associate=True,
                  permute=None,
                  min_p_inclusion=0.5,
+                 heritability=0.1,
                  missing_filter=0.1):
 
         self.gene = gene.name
@@ -308,6 +309,7 @@ class Association():
         self.elasticnet = gene.elasticnet
         self.min_p_inclusion = min_p_inclusion
         self.missing_filter = missing_filter
+        self.heritability = heritability
         self._load_genotypes(gene, study)
         
         #self._generate_kfolds()
@@ -315,9 +317,9 @@ class Association():
         self.f_stats = None
         self.b_stats = None
         self.permute_stats = None
+        self._load_phenotypes(gene, study)
 
         if associate:
-            self._load_phenotypes(gene, study)
             self.associate()
 
         return
@@ -392,14 +394,16 @@ class Association():
         inter_gt - constant (default: 1)
 
         """
-        inter_var = self.pred_expr.mean(axis=1).var(ddof=1)
-        intra_var = self.pred_expr.var(axis=1, ddof=1).mean()
+        bootstraps = [column for column in self.pred_expr.columns
+                      if column not in ('full', 'twostage')]
+        inter_var = self.pred_expr[bootstraps].mean(axis=1).var(ddof=1)
+        intra_var = self.pred_expr[bootstraps].var(axis=1, ddof=1).mean()
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
         if 1.1*inter_var > intra_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
-            self._bayesian(self.pred_expr)
+            #self._bayesian(self.pred_expr)
         return
 
     def _bayesian(self, pred_expr):
@@ -407,7 +411,7 @@ class Association():
         Fit measurement error Bayesian model and compute a Bayes Factor
         and other statistics.
         '''
-        self.b_stats = {}
+        self.b_stats, self.b_traces = {}, {}
         bootstraps = [column for column in pred_expr.columns
                       if column not in ('full', 'twostage')]
         phen = self.gwas_phen.values
@@ -418,7 +422,7 @@ class Association():
         # Measurement Error Model w/ BF
         bf_model = bay.MeasurementErrorBF(mediator_mu=mean_expr.mean(),
                                           mediator_sd=mean_expr.std(),
-                                          uniform_alpha=False,
+                                          heritability=self.heritability,
                                           variational=False,
                                           n_chain=75000)
         bf_trace = bf_model.run(gwas_phen=phen,
@@ -430,7 +434,7 @@ class Association():
         bayes_factor = (p_alt/(1-p_alt))
         bf_stats['bayes_factor'] = bayes_factor
         self.b_stats[bf_model.name] = bf_stats
-
+        self.b_traces[bf_model.name] = bf_trace
         # Measurement Error without BF
         # me_model = bay.MeasurementError(mediator_mu=mean_expr.mean(),
         #                                 mediator_sd=mean_expr.std(),
@@ -484,13 +488,68 @@ class Association():
         print(self.f_stats)
         return
 
+    def _generate_null_phen(self, permuted_noise=True):
+        # model = bay.NonMediated()
+        # model.run(gwas_gen=self.gwas_gen.values, gwas_phen=self.gwas_phen.values)
+        self.null_phenotypes = []
+        for idx in range(0, 1000, 10):
+            # if permuted_noise:
+            #     phenotype_hat = self.gwas_gen.dot(model.trace[idx]['beta'].ravel())
+            #     residuals = self.gwas_phen - phenotype_hat
+            #     phenotype_new = phenotype_hat + np.random.permutation(residuals)
+            # else:
+            #     phen = model.cached_model.observed_RVs[0]
+            #     phenotype_new = phen.distribution.random(point=model.trace[idx]).ravel()
+            # self.null_phenotypes.append(phenotype_new)
+            permuted_phenotype = np.random.permutation(self.gwas_phen)
+            self.null_phenotypes.append(permuted_phenotype)
+        return self.null_phenotypes
+
+    def _generate_null_statistics(self, gene, pred_expr):
+
+        self.null_stats = []
+        bootstraps = [column for column in pred_expr.columns
+                      if column not in ('full', 'twostage')]
+        bootstrap_expr = pred_expr[bootstraps]
+        mean_expr = bootstrap_expr.mean(axis=1)
+        sigma_ui = bootstrap_expr.var(ddof=1, axis=1)
+
+        # Measurement Error Model w/ BF
+        bf_model = bay.MeasurementErrorBF(mediator_mu=mean_expr.mean(),
+                                          mediator_sd=mean_expr.std(),
+                                          variational=False,
+                                          n_chain=75000)
+
+        for phen in self.null_phenotypes:
+            bf_trace = bf_model.run(gwas_phen=phen,
+                                    gwas_mediator=mean_expr.values,
+                                    gwas_error=np.sqrt(sigma_ui.values))
+            bf_stats = bf_model.calculate_ppc(bf_trace)
+            p_alt = bf_model.trace['mediator_model'].mean()
+            bayes_factor = (p_alt/(1-p_alt))
+            bf_stats['bayes_factor'] = bayes_factor
+            self.null_stats.append(bf_stats)
+            print(bf_stats)
+
+        return self.null_stats
+
     def save(self, file_prefix):
+        bootstraps = [column for column in self.pred_expr.columns
+                      if column not in ('full', 'twostage')]
+        inter_var = self.pred_expr[bootstraps].mean(axis=1).var(ddof=1)
+        intra_var = self.pred_expr[bootstraps].var(axis=1, ddof=1).mean()
+        with open(file_prefix + '.variance', 'w') as OUT:
+            OUT.write('Intra-variance\t{}\n'.format(intra_var))
+            OUT.write('Inter-variance\t{}\n'.format(inter_var))
+        
         if self.f_stats is not None:
             f_df = pd.DataFrame.from_dict(self.f_stats, orient='index')
             f_df.columns = ['coeff', 'se', 'pvalue']
             f_df.index = pd.MultiIndex.from_tuples([(index, self.gene)
                                                     for index in f_df.index])
             f_df.to_csv(file_prefix + '.fstats.tsv', sep='\t')
+
+
         if self.b_stats is not None:
             b_df = pd.DataFrame(self.b_stats).T
             b_df.index = pd.MultiIndex.from_tuples([(index, self.gene)
