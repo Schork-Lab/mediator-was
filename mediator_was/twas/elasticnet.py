@@ -57,7 +57,7 @@ def calculate_cv_r2(allele_df, covariates_df, phen_df,
     # Clean up and match on samples
     covariates_df = covariates_df.dropna()
     samples = list(set(phen_df.index).intersection(covariates_df.index))
-    design = pd.concat([allele_df.ix[samples], covariates_df.ix[samples]],
+    design = pd.concat([allele_df.ix[samples]],# covariates_df.ix[samples]],
                            axis=1)
     design['constant'] = 1
     phen_df = phen_df.ix[samples]

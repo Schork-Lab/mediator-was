@@ -370,8 +370,12 @@ class Association():
                                         loci['alt'],
                                         self.missing_filter)
             return alleles
+
         alleles = gene.loci[gene.loci.index.isin(gene.elasticnet['id'])].apply(_get_alleles, axis=1)
         alleles = alleles[~alleles.isnull()]
+        if len(alleles) == 0:
+            print("No matching alleles between study and gene elasticnet models.")
+            raise Exception
         self.gwas_gen = pd.DataFrame([np.array(x) for x in alleles],
                                      index=alleles.index).T
         loci = set(self.gwas_gen.columns).intersection(gene.alleles.columns)
