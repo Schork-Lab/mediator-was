@@ -5,6 +5,7 @@ Author: Kunal Bhutani <kunalbhutani@gmail.com>
 '''
 import pandas as pd
 from sklearn.linear_model import ElasticNetCV, ElasticNet
+from sklearn.cross_validation import KFold
 from sklearn.utils import resample
 
 
@@ -49,3 +50,34 @@ def fit_models(allele_df, phen_df, covariates_df,
         coef_dfs.append(coef_df)
 
     return pd.concat(coef_dfs), full_model.alpha_, full_model.l1_ratio_
+
+
+def calculate_cv_r2(allele_df, covariates_df, phen_df,
+                    l1_ratio, alpha, n_folds=5):
+    # Clean up and match on samples
+    covariates_df = covariates_df.dropna()
+    samples = list(set(phen_df.index).intersection(covariates_df.index))
+    design = pd.concat([allele_df.ix[samples], covariates_df.ix[samples]],
+                           axis=1)
+    design['constant'] = 1
+    phen_df = phen_df.ix[samples]
+    # Initialize folds and model
+    kf = KFold(design.shape[0], n_folds=n_folds)
+    model = ElasticNet(alpha=alpha,
+                       l1_ratio=l1_ratio,
+                       max_iter=10000)
+
+    # Train and calculate R2
+    r2s = []
+    for train, test in kf:
+        print(len(train))
+        model.fit(design.ix[train], phen_df.ix[train].values.ravel())
+        r2s.append(model.score(design.ix[test], phen_df.ix[test].values.ravel()))
+
+    return r2s
+
+    
+
+
+
+

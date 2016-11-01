@@ -18,7 +18,7 @@ from sklearn.utils import resample
 
 from mediator_was.association.frequentist import *
 import mediator_was.association.bayesian as bay
-from mediator_was.twas.elasticnet import fit_models
+from mediator_was.twas.elasticnet import fit_models, calculate_cv_r2
 
 
 class Gene():
@@ -58,6 +58,7 @@ class Gene():
         self.chromosome = main_dir.split('/')[-2]  # Assumes no trailing /
         self._load_data()
         self._retrain()
+        self._calc_r2()
         self._save()
         return
 
@@ -78,7 +79,7 @@ class Gene():
             data = self._load_gtex_expression()
         else:
             data = self._load_rlog_expression()
-        self.expression, self.covariates, self.elasticnet = data
+        self.expression, self.covariates, self.elasticnet, self.l1_ratio, self.alpha = data
         self.samples = self.expression.index
         self.alleles = self.all_alleles.ix[self.samples]
         return
@@ -119,11 +120,18 @@ class Gene():
         self.elasticnet.to_csv(fn, sep='\t', index=False)
 
         if hasattr(self, 'alpha'):
-            param_fn = os.path.join(self.main_dir,
-                                    "{}.{}.params.txt".format(self.name, label))
-            with open(param_fn, "w") as OUT:
-                OUT.write("L1 ratio: {} \n".format(self.alpha))
-                OUT.write("Alpha: {} \n".format(self.l1_ratio))
+            if self.alpha is not None:
+                param_fn = os.path.join(self.main_dir,
+                                        "{}.{}.params.txt".format(self.name, label))
+                with open(param_fn, "w") as OUT:
+                    OUT.write("L1 ratio: {} \n".format(self.alpha))
+                    OUT.write("Alpha: {} \n".format(self.l1_ratio))
+       
+        if hasattr(self, 'r2'):
+            r2_fn = os.path.join(self.main_dir,
+                                "{}.{}.r2.txt".format(self.name, label))
+            with open(r2_fn, "w") as OUT:
+                OUT.write("\n".join([str(r2) for r2 in self.r2]))
         return
 
     def _load_gtex_alleles(self):
@@ -139,6 +147,12 @@ class Gene():
         loci_df = pd.read_table(loci_file, sep='\t', index_col=0)
         return loci_df
 
+    def _load_params(self, fn):
+        with open(fn, 'r') as IN:
+            l1_ratio = float(IN.readline().rstrip().split(' ')[-1])
+            alpha = float(IN.readline().rstrip().split(' ')[-1])
+        return l1_ratio, alpha
+
     def _load_gtex_expression(self):
         gtex_file = os.path.join(self.main_dir,
                                  self.name + ".gtex_normalized.phen.tsv")
@@ -146,14 +160,19 @@ class Gene():
                                             ".covariates.tsv")
         en_file = gtex_file.replace(".phen.tsv",
                                     ".elasticnet.tsv")
+
         phen_df = pd.read_table(gtex_file, sep='\t', index_col=0)
         covariates_df = pd.read_table(covariates_file, sep='\t', index_col=0)
+        
         try:
             en_df = pd.read_table(en_file, sep='\t')
-        except OSError:
-            en_df = None
+            param_file = glob.glob(os.path.join(self.main_dir,
+                                   '*gtex_normalized.params.t*'))[0]
+            l1_ratio, alpha = self._load_params(param_file)
+        except:
+            en_df, l1_ratio, alpha = None, None, None
 
-        return phen_df, covariates_df, en_df
+        return phen_df, covariates_df, en_df, l1_ratio, alpha
 
     def _load_rlog_expression(self):
         rlog_file = os.path.join(self.main_dir,
@@ -162,13 +181,26 @@ class Gene():
                                             ".covariates.tsv")
         en_file = rlog_file.replace(".phen.tsv",
                                     ".elasticnet.tsv")
+        param_file = glob.glob(os.path.join(self.main_dir,
+                                            '*rlog.params.txt'))[0]
         phen_df = pd.read_table(rlog_file, sep='\t', index_col=0)
         covariates_df = pd.read_table(covariates_file, sep='\t', index_col=0)
         try:
             en_df = pd.read_table(en_file, sep='\t')
-        except OSError:
-            en_df = None
-        return phen_df, covariates_df, en_df
+            param_file = glob.glob(os.path.join(self.main_dir,
+                                   '*rlog.params.t*'))[0]
+            l1_ratio, alpha = self._load_params(param_file)
+        except:
+            en_df, l1_ratio, alpha = None, None, None
+        return phen_df, covariates_df, en_df, l1_ratio, alpha
+
+    def _calc_r2(self):
+        r2 = calculate_cv_r2(self.alleles,
+                             self.covariates,
+                             self.expression, 
+                             self.l1_ratio, 
+                             self.alpha)
+        self.r2 = r2
 
 
 class Study():
@@ -385,7 +417,7 @@ class Association():
             pred_expr.append(expression)
         self.pred_expr = pd.concat(pred_expr, axis=1)
 
-    def associate(self, inter_gt=1):
+    def associate(self, inter_gt=1.1):
         """
         Run Bayesian and Frequentist measurement error associations.
         Filter heritable genes based on
@@ -400,7 +432,7 @@ class Association():
         intra_var = self.pred_expr[bootstraps].var(axis=1, ddof=1).mean()
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
-        if 1.1*inter_var > intra_var:
+        if inter_gt*inter_var > intra_var:
             print('Heritable, running associations.')
             self._frequentist(self.pred_expr)
             #self._bayesian(self.pred_expr)

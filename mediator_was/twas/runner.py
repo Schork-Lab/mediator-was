@@ -5,15 +5,34 @@ import glob
 import pandas as pd
 
 
+def calc_r2(gene_dir, gtex=True, rlog=True):
+    if gtex:
+      try:
+        gene = T.Gene(gene_dir)
+        gene._calc_r2()
+        gene._save()
+      except:
+        pass
+    if rlog:
+      gene = T.Gene(gene_dir, gtex=False)
+      gene._calc_r2()
+      gene._save()
+    return
+
 def associate(gene_dir, study_prefix, out_prefix,
               gtex=True, rlog=True):
     study = T.Study(study_prefix)
     if gtex:
-      gene = T.Gene(gene_dir)
-      association = T.Association(gene, study)
-      association.save(out_prefix+'.gtex')
-      del association
-      del gene
+      try:
+        gene = T.Gene(gene_dir)
+        gene._calc_r2()
+        association = T.Association(gene, study)
+        association.save(out_prefix+'.gtex')
+
+        del association
+        del gene
+      except:
+        pass
     if rlog:
       gene = T.Gene(gene_dir, gtex=False)
       association = T.Association(gene, study)
