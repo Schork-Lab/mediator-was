@@ -433,10 +433,11 @@ class Association():
         intra_var = self.pred_expr[bootstraps].var(axis=1, ddof=1).mean()
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
-        if inter_gt*inter_var > intra_var:
-            print('Heritable, running associations.')
-            self._frequentist(self.pred_expr)
-            #self._bayesian(self.pred_expr)
+        self._frequentist(self.pred_expr)
+        # if inter_gt*inter_var > intra_var:
+        #     print('Heritable, running associations.')
+        #     self._frequentist(self.pred_expr)
+        #     #self._bayesian(self.pred_expr)
         return
 
     def _bayesian(self, pred_expr):
