@@ -70,7 +70,6 @@ def calculate_cv_r2(allele_df, covariates_df, phen_df,
     # Train and calculate R2
     r2s = []
     for train, test in kf:
-        print(len(train))
         model.fit(design.ix[train], phen_df.ix[train].values.ravel())
         r2s.append(model.score(design.ix[test], phen_df.ix[test].values.ravel()))
 
