@@ -181,8 +181,6 @@ class Gene():
                                             ".covariates.tsv")
         en_file = rlog_file.replace(".phen.tsv",
                                     ".elasticnet.tsv")
-        param_file = glob.glob(os.path.join(self.main_dir,
-                                            '*rlog.params.txt'))[0]
         phen_df = pd.read_table(rlog_file, sep='\t', index_col=0)
         covariates_df = pd.read_table(covariates_file, sep='\t', index_col=0)
         try:
