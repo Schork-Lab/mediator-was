@@ -440,6 +440,7 @@ class Association(object):
         bayes_factor = (p_alt/(1-p_alt))
         bf_stats['bayes_factor'] = bayes_factor
         self.b_stats[bf_model.name] = bf_stats
+        del bf_model, bf_trace
 
         # Measurement Error without BF
         # me_model = bay.MeasurementError(mediator_mu=w_bootstrap.mean(),
@@ -478,6 +479,7 @@ class Association(object):
         bayes_factor = (p_alt/(1-p_alt))
         ts_stats['bayes_factor'] = bayes_factor
         self.b_stats[ts_model.name] = ts_stats
+        del ts_model, ts_trace
 
         # j_model = bay.Joint(variational=True, mb=True, n_chain=50000)
         # j_trace = j_model.run(med_gen=gene.train_genotypes[:, columns],
