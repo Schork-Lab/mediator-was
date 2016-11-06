@@ -303,7 +303,7 @@ class Association(object):
         b_mse - mse using out of sample samples
         b_zscore - zscore equivalent statistic for alpha
     '''
-    def __init__(self, name, gene, study, seed=0, associate=True, me=True, heritability=0.2/400):
+    def __init__(self, name, gene, study, seed=0, associate=True, me=True, ts=True, heritability=0.2/400):
         R.seed(seed)
         self.name = name
         self.gene = gene.id
@@ -330,7 +330,7 @@ class Association(object):
             self.b_stats = {}
             if me:
                 self._bayesian_me(gene)
-            else:
+            if ts:
                 self._bayesian(gene)
         return
 
@@ -455,34 +455,38 @@ class Association(object):
 
         return self.b_stats
 
-    def _bayesian(self, gene, ):
+    def _bayesian(self, gene, min_inclusion=0.5):
         '''
         Fit Two Stage and Joint Bayesian models and calculate statistics based on both
         out of sample MSE and cross-validation.
+
+        min_inclusion: fraction of bootstrapped models containing SNP
         '''
 
         elasticnet = pd.DataFrame([model.coef_
                                    for model in gene.bootstrap_models])
-        columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > 0.5)[0]
+        columns = np.where(((elasticnet != 0).sum(axis=0) / elasticnet.shape[0]) > min_inclusion)[0]
         self.included_snps = columns
-        coef_mean = elasticnet[columns].mean(axis=0).values
-        coef_sd = elasticnet[columns].std(axis=0, ddof=1).values
-        ts_model = bay.TwoStage(coef_mean, coef_sd,
-                                variational=True, n_chain=50000)
-        ts_trace = ts_model.run(gwas_gen=self.genotype[:, columns],
+        coef_mean = elasticnet[self.included_snps].mean(axis=0).values
+        coef_sd = elasticnet[self.included_snps].std(axis=0, ddof=1).values
+        ts_model = bay.TwoStageBF(coef_mean, coef_sd,
+                                variational=False, n_chain=20000)
+        ts_trace = ts_model.run(gwas_gen=self.genotype[:, self.included_snps],
                                 gwas_phen=self.phenotype)
         ts_stats = ts_model.calculate_ppc(ts_trace)
-        ts_stats['bayes_factor'] = 0
+        p_alt = ts_model.trace['mediator_model'].mean()
+        bayes_factor = (p_alt/(1-p_alt))
+        ts_stats['bayes_factor'] = bayes_factor
         self.b_stats[ts_model.name] = ts_stats
 
-        j_model = bay.Joint(variational=True, mb=True, n_chain=50000)
-        j_trace = j_model.run(med_gen=gene.train_genotypes[:, columns],
-                              med_phen=gene.train_expression,
-                              gwas_gen=self.genotype[:, columns],
-                              gwas_phen=self.phenotype)
-        j_stats = j_model.calculate_ppc(j_trace)
-        j_stats['bayes_factor'] = 0
-        self.b_stats[j_model.name] = j_stats
+        # j_model = bay.Joint(variational=True, mb=True, n_chain=50000)
+        # j_trace = j_model.run(med_gen=gene.train_genotypes[:, columns],
+        #                       med_phen=gene.train_expression,
+        #                       gwas_gen=self.genotype[:, columns],
+        #                       gwas_phen=self.phenotype)
+        # j_stats = j_model.calculate_ppc(j_trace)
+        # j_stats['bayes_factor'] = 0
+        # self.b_stats[j_model.name] = j_stats
         return self.b_stats
 
     def _generate_null_phen(self, permuted_noise=True):

@@ -452,6 +452,82 @@ class TwoStage(BayesianModel):
             self.minibatch_tensors = [gwas_gen, gwas_phen]
         return phenotype_model
 
+class TwoStageBF(BayesianModel):
+    """
+    Two Stage Inference.
+
+    First stage: Bootstrapped ElasticNet
+    Second stage: Use loci that were learned in the first stage
+                  and their mean and std as priors for a simple
+                  Bayesian Linear Regression
+
+    Attributes:
+
+    """
+    def __init__(self, coef_mean, coef_sd, p_sigma_beta=10,
+                 *args, **kwargs):
+        """
+        Args:
+
+        """
+        self.name = 'TwoStageBF'
+        self.cv_vars = ['gwas_phen', 'gwas_gen']
+        self.vars = {'coef_mean': coef_mean,
+                     'coef_sd': coef_sd,
+                     'p_sigma_beta': p_sigma_beta}
+        super(TwoStageBF, self).__init__(*args, **kwargs)
+
+    def create_model(self, gwas_gen, gwas_phen):
+        """
+        Simple Bayesian Linear Regression
+
+        Args:
+            gwas_gen (pandas.DataFrame): GWAS genotypes
+            gwas_phen (pandas.DataFrame): GWAS phenotypes
+
+        Returns:
+            pymc3.Model(): The Bayesian model
+        """
+        n_ind, n_snps = gwas_gen.eval().shape
+        with pm.Model() as phenotype_model:
+            beta_med = pm.Normal('beta_med',
+                                 mu=self.vars['coef_mean'],
+                                 sd=self.vars['coef_sd'],
+                                 shape=(1, n_snps))
+            
+            mediator = pm.dot(beta_med, gwas_gen.T)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Normal('alpha', mu=0, sd=1)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                beta=self.vars['p_sigma_beta'])
+            
+
+            # Model Selection
+            p = np.array([0.5, 0.5])
+            mediator_model = pm.Bernoulli('mediator_model', p[1])
+
+            # Model 1
+            phenotype_mu_null = intercept
+
+            # Model 2
+            phenotype_mu_mediator = intercept + alpha * mediator
+
+            phen = pm.DensityDist('phen',
+                                lambda value: pm.switch(mediator_model, 
+                                    pm.Normal.dist(mu=phenotype_mu_mediator, sd=phenotype_sigma).logp(value), 
+                                    pm.Normal.dist(mu=phenotype_mu_null, sd=phenotype_sigma).logp(value)
+                                ),
+                                observed=gwas_phen)
+            self.steps = [pm.BinaryGibbsMetropolis(vars=[mediator_model]),
+                          pm.Metropolis()]
+
+            
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+        return phenotype_model
+
+
 
 class Joint(BayesianModel):
     """
@@ -840,10 +916,6 @@ class MeasurementErrorBF(BayesianModel):
         n_samples = gwas_mediator.eval().shape[0]
         with pm.Model() as phenotype_model:
 
-            # Model Selection
-            p = np.array([0.5, 0.5])
-            mediator_model = pm.Bernoulli('mediator_model', p[1])
-
             # Mediator
             mediator = pm.Normal('mediator',
                                  mu=self.vars['mediator_mu'],
@@ -876,6 +948,10 @@ class MeasurementErrorBF(BayesianModel):
                 var_alpha = var_explained/(md_var + md_mean_sq)
                 alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
  
+            # Model Selection
+            p = np.array([0.5, 0.5])
+            mediator_model = pm.Bernoulli('mediator_model', p[1])
+
             # Model 1
             phenotype_mu_null = intercept
 
