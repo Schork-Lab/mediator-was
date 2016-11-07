@@ -459,7 +459,7 @@ class Association():
                                           mediator_sd=mean_expr.std(),
                                           heritability=self.heritability,
                                           variational=False,
-                                          n_chain=75000)
+                                          n_chain=50000)
         bf_trace = bf_model.run(gwas_phen=phen,
                                 gwas_mediator=mean_expr.values,
                                 gwas_error=np.sqrt(sigma_ui.values))
@@ -478,12 +478,12 @@ class Association():
         n_bootstraps = len(self.elasticnet['bootstrap'].unique()) - 2
         bootstraps_per_snp = coefs['id'].value_counts()
         self.included_bay_snps =  bootstraps_per_snp[bootstraps_per_snp > min_inclusion * n_bootstraps].index
-        coefs = coefs[coefs['id'].isin(included_bay_snps)]
+        coefs = coefs[coefs['id'].isin(self.included_bay_snps)]
         coef_mean = coefs.groupby('id')['beta'].mean().values
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
         ts_model = bay.TwoStageBF(coef_mean, coef_sd,
-                                variational=False, n_chain=20000)
-        ts_trace = ts_model.run(gwas_gen=self.gwas_gen[:, self.included_snps].values,
+                                variational=False, n_chain=25000)
+        ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_bay_snps].values,
                                 gwas_phen=phen)
         ts_stats = ts_model.calculate_ppc(ts_trace)
         p_alt = ts_model.trace['mediator_model'].mean()
