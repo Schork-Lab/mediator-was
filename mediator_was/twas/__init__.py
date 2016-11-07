@@ -384,8 +384,8 @@ class Association():
         self.gtex_gen = gene.alleles[self.loci]
         # # NOTE :: included_snps should be part of gene object too.
         ## CLEAN THIS UP.
-        self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
-        self.included_snps = list(set(self.loci).intersection(self.included_snps))
+        # self.included_snps = self.elasticnet[self.elasticnet.bootstrap == 'twostage']['id']
+        # self.included_snps = list(set(self.loci).intersection(self.included_snps))
 
         return
 
@@ -434,15 +434,16 @@ class Association():
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
         self._frequentist(self.pred_expr)
+        self._bayesian(self.pred_expr)
         # if inter_gt*inter_var > intra_var:
         #     print('Heritable, running associations.')
         #     self._frequentist(self.pred_expr)
         #     #self._bayesian(self.pred_expr)
         return
 
-    def _bayesian(self, pred_expr):
+    def _bayesian(self, pred_expr,  min_inclusion=0.5):
         '''
-        Fit measurement error Bayesian model and compute a Bayes Factor
+        Fit measurement error Bayesian model and Two Stage model and compute a Bayes Factor
         and other statistics.
         '''
         self.b_stats, self.b_traces = {}, {}
@@ -469,6 +470,30 @@ class Association():
         bf_stats['bayes_factor'] = bayes_factor
         self.b_stats[bf_model.name] = bf_stats
         self.b_traces[bf_model.name] = bf_trace
+        del bf_model, bf_trace
+
+
+        # Two Stage
+        coefs = self.elasticnet[self.elasticnet['bootstrap'].isin(['full', 'twostage'])]
+        n_bootstraps = len(self.elasticnet['bootstrap'].unique()) - 2
+        bootstraps_per_snp = coefs['id'].value_counts()
+        self.included_bay_snps =  bootstraps_per_snp[bootstraps_per_snp > min_inclusion * n_bootstraps].index
+        coefs = coefs[coefs['id'].isin(included_bay_snps)]
+        coef_mean = coefs.groupby('id')['beta'].mean().values
+        coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
+        ts_model = bay.TwoStageBF(coef_mean, coef_sd,
+                                variational=False, n_chain=20000)
+        ts_trace = ts_model.run(gwas_gen=self.gwas_gen[:, self.included_snps].values,
+                                gwas_phen=phen)
+        ts_stats = ts_model.calculate_ppc(ts_trace)
+        p_alt = ts_model.trace['mediator_model'].mean()
+        bayes_factor = (p_alt/(1-p_alt))
+        ts_stats['bayes_factor'] = bayes_factor
+        self.b_stats[ts_model.name] = ts_stats
+        del ts_model, ts_trace
+
+        # Two Stage
+
         # Measurement Error without BF
         # me_model = bay.MeasurementError(mediator_mu=mean_expr.mean(),
         #                                 mediator_sd=mean_expr.std(),
