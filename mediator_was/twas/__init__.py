@@ -474,7 +474,7 @@ class Association():
 
 
         # Two Stage
-        coefs = self.elasticnet[self.elasticnet['bootstrap'].isin(['full', 'twostage'])]
+        coefs = self.elasticnet[~self.elasticnet['bootstrap'].isin(['full', 'twostage'])]
         n_bootstraps = len(self.elasticnet['bootstrap'].unique()) - 2
         bootstraps_per_snp = coefs['id'].value_counts()
         self.included_bay_snps =  bootstraps_per_snp[bootstraps_per_snp > min_inclusion * n_bootstraps].index
