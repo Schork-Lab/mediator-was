@@ -250,6 +250,7 @@ class Study():
             #fn = phen_prefix_path + ".liab_all" # REMOVE THIS LATER!!!!!
             df = pd.read_table(fn, index_col=0, names=['phen'])
             self.phen[chrom] = df.ix[self.samples]
+            self.phen[chrom] = self.phen[chrom].fillna(self.phen[chrom].mean())
         # self.case_control = pd.read_table(phen_prefix_path + '.fam',
         #                                   names=['fam', 'id', '1', '2', '3', 'phen'],
         #                                   sep='\t')
@@ -454,27 +455,28 @@ class Association():
         mean_expr = bootstrap_expr.mean(axis=1)
         sigma_ui = bootstrap_expr.var(ddof=1, axis=1)
 
-        # Measurement Error Model w/ BF
-        bf_model = bay.MeasurementErrorBF(mediator_mu=mean_expr.mean(),
-                                          mediator_sd=mean_expr.std(),
-                                          heritability=self.heritability,
-                                          variational=False,
-                                          n_chain=50000)
-        bf_trace = bf_model.run(gwas_phen=phen,
-                                gwas_mediator=mean_expr.values,
-                                gwas_error=np.sqrt(sigma_ui.values))
+        # # Measurement Error Model w/ BF
+        # bf_model = bay.MeasurementErrorBF(mediator_mu=mean_expr.mean(),
+        #                                   mediator_sd=mean_expr.std(),
+        #                                   heritability=self.heritability,
+        #                                   variational=False,
+        #                                   n_chain=50000)
+        # bf_trace = bf_model.run(gwas_phen=phen,
+        #                         gwas_mediator=mean_expr.values,
+        #                         gwas_error=np.sqrt(sigma_ui.values))
 
-        bf_stats = bf_model.calculate_ppc(bf_trace)
-        p_alt = bf_model.trace['mediator_model'].mean()
-        bayes_factor = (p_alt/(1-p_alt))
-        bf_stats['bayes_factor'] = bayes_factor
-        self.b_stats[bf_model.name] = bf_stats
-        self.b_traces[bf_model.name] = bf_trace
-        del bf_model, bf_trace
+        # bf_stats = bf_model.calculate_ppc(bf_trace)
+        # p_alt = bf_model.trace['mediator_model'].mean()
+        # bayes_factor = (p_alt/(1-p_alt))
+        # bf_stats['bayes_factor'] = bayes_factor
+        # self.b_stats[bf_model.name] = bf_stats
+        # self.b_traces[bf_model.name] = bf_trace
+        # del bf_model, bf_trace
 
 
         # Two Stage
         coefs = self.elasticnet[~self.elasticnet['bootstrap'].isin(['full', 'twostage'])]
+        coefs = coefs[coefs['id'].isin(self.loci)]
         n_bootstraps = len(self.elasticnet['bootstrap'].unique()) - 2
         bootstraps_per_snp = coefs['id'].value_counts()
         self.included_bay_snps =  bootstraps_per_snp[bootstraps_per_snp > min_inclusion * n_bootstraps].index
