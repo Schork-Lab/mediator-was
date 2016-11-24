@@ -1,11 +1,11 @@
-
+import os
 import sys
 import pickle
 import mediator_was.twas.simulation as s
 import pymc3 as pm
 import numpy.random
 import time
-
+import pandas as pd
 
 
 def simulate_null_associations(in_file,
@@ -34,6 +34,7 @@ def simulate_null_associations(in_file,
     
     # Simulate n genes and associate with each study
     for i in range(n):
+        print('Simulating gene {}'.format(i))
         seed = numpy.random.randint(low=0, high=10000)
         plink_idx = numpy.random.randint(0, len(plink)-1)
         p_causal = p_causal_eqtls[numpy.random.randint(0, 4)]
@@ -43,12 +44,15 @@ def simulate_null_associations(in_file,
         except:
             continue
         for j, study in enumerate(studies):
+            print('Associating')
             association = s.association("null", gene, study)
-            f_stats[j] = pd.concat([f_stats[j], association.f_stats])
-            b_stats[j] = pd.concat([b_stats[j], association.b_stats])
+            f_stats[j] = pd.concat([f_stats[j], association.create_frequentist_df()])
+            b_stats[j] = pd.concat([b_stats[j], association.create_bayesian_df()])
+            del association
+        del gene
 
     # Save statistics
-    for i, pref in enumerate(out_prefix)
+    for i, pref in enumerate(out_prefix):
         fn = '{}_{}.fstats.tsv'.format(pref, time.time())
         f_stats[i].to_csv(fn, sep='\t')
         b_stats[i].to_csv(fn.replace('fstats', 'bstats'), sep='\t')
@@ -58,7 +62,7 @@ def simulate_null_associations(in_file,
 
 def simulate_gene(gene_name, plink_file, out_file=None, *args, **kwargs):
     gene = s.Gene(gene_name, plink_file, *args, **kwargs)
-    is out_file is not None:
+    if out_file is not None:
         print('Writing out file: {}'.format(out_file))
         with open(out_file, 'wb') as f:
             pickle.dump(gene, f)
