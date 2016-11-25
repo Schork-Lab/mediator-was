@@ -25,12 +25,17 @@ def simulate_null_associations(in_file,
     # Load all the studies
     with open(in_file) as IN:
         studies, out_prefix = zip(*[line.rstrip().split() for line in IN]) 
+    print('Loaded files: \n {}'.format("\n".join(studies)))
+
     with pm.Model():
         studies = [pickle.load(open(study, 'rb')) for study in studies]
     
     # Initialize dataframes of statistics
     f_stats = [pd.DataFrame() for _ in range(len(studies))]
     b_stats = [pd.DataFrame() for _ in range(len(studies))]
+
+    fns = ['{}_{}.fstats.tsv'.format(pref, time.time())
+            for i, pref in enumerate(out_prefix)]
     
     # Simulate n genes and associate with each study
     for i in range(n):
@@ -45,17 +50,15 @@ def simulate_null_associations(in_file,
             continue
         for j, study in enumerate(studies):
             print('Associating')
-            association = s.association("null", gene, study)
+            association = s.Association("null", gene, study)
             f_stats[j] = pd.concat([f_stats[j], association.create_frequentist_df()])
             b_stats[j] = pd.concat([b_stats[j], association.create_bayesian_df()])
+            f_stats[j].to_csv(fns[j], sep='\t')
+            b_stats[j].to_csv(fns[j].replace('fstats', 'bstats'), sep='\t')
             del association
         del gene
 
     # Save statistics
-    for i, pref in enumerate(out_prefix):
-        fn = '{}_{}.fstats.tsv'.format(pref, time.time())
-        f_stats[i].to_csv(fn, sep='\t')
-        b_stats[i].to_csv(fn.replace('fstats', 'bstats'), sep='\t')
 
     return f_stats, b_stats
 
