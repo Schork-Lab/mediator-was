@@ -8,6 +8,29 @@ import time
 import pandas as pd
 
 
+def simulate_variance_ratio(in_file, 
+                            num_assoc,
+                            out_file,
+                            pve=0.2/40):
+    '''
+    Simulates a number of associations studies
+    with just the gene. Calculates frequentist statistics. Useful 
+    for finding the added property of variance ratio in the fidelity
+    of these tests with n=5000.
+    '''
+    gene = plink.load(open(in_file, 'rb'))
+    statistics = pd.DataFrame(None)
+    for i in range(num_assoc):
+        study = s.Study('test', [gene], pve=pve, seed=i)
+        assoc = s.Association('test', gene, study, associate=False, me=False)
+        assoc._frequentist(gene)
+        df = assoc.create_frequentist_df(variance_ratio=True)
+        df['trial'] = i
+        statistics = pd.concat([statistics, df])
+    statistics.to_csv(out_file, sep='\t')
+    return statistics
+
+
 def simulate_null_associations(in_file,
                                n=20,
                                plink_dir='/home/unix/kbhutani/compbio/gwas/genotypes'):
@@ -111,6 +134,7 @@ if __name__ == "__main__":
         print("python simulation_runner.py simulate_study study_name gene_list_file out_file {optional seed}")
         print("python simulation_runner.py associate association_name gene_file study_file out_file")
         print("python simulation_runner.py simulate_null in_file")
+        print("python simulation_runner.py variance_ratio gene_file num_null out_file")
         print("infile: study.pkl\tout_prefix")
         print("python simulation_runner.py power association_dir out_file")
     else:
@@ -137,5 +161,8 @@ if __name__ == "__main__":
         elif sys.argv[1] == "simulate_null":
             print("Running null associations for {}".format(sys.argv[2]))
             simulate_null_associations(sys.argv[2])
+        elif sys.argv[1] == "variance_ratio":
+            print("Running null associations with variance ratio for {}".format(sys.argv[2]))
+            simulate_variance_ratio(sys.argv[2], int(sys.argv[3]), sys.argv[4])
         else:
             print('Unrecognized command', sys.argv[1])

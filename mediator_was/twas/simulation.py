@@ -25,6 +25,7 @@ import pandas as pd
 import pymc3 as pm
 from sklearn.cross_validation import KFold, ShuffleSplit
 from scipy import stats
+import statsmodels.sandbox.stats.multicomp as smmc
 
 
 from mediator_was.association.frequentist import *
@@ -353,6 +354,7 @@ class Association(object):
                                         random_state=seed))
         return
 
+
     def _frequentist(self, gene):
         '''
         Fit frequentist methods for association
@@ -366,11 +368,15 @@ class Association(object):
         w_bootstrap = np.mean(pred_expr, axis=0)
         sigma_ui_bootstrap = np.var(pred_expr, ddof=1, axis=0)
 
+        # Variance ratio
+        variance_ratio = w_bootstrap.var() / sigma_ui_bootstrap.mean()
+        self.variance_ratio = variance_ratio
+
         # Full
         try:
             full_expr = gene.full_model.predict(genotype)
         except:
-            print("Full model not found. Taking first bootstrap as full expression")
+            #print("Full model not found. Taking first bootstrap as full expression")
             full_expr = pred_expr[0]
 
 
@@ -528,7 +534,7 @@ class Association(object):
         return self.null_stats
 
 
-    def create_frequentist_df(self):
+    def create_frequentist_df(self, variance_ratio=False):
         '''
         Create dataframe from f_association dict
         '''
@@ -536,6 +542,8 @@ class Association(object):
         f_df.columns = ['coeff', 'se', 'pvalue']
         f_df.index = pd.MultiIndex.from_tuples([(index, self.gene) for index in
                                                 f_df.index])
+        if variance_ratio:
+            f_df['variance_ratio'] = self.variance_ratio
         return f_df
 
     def create_bayesian_df(self):
@@ -729,13 +737,13 @@ class Power():
             # Load intermediate files generated
             f_df = pd.concat([pd.read_table(fn, index_col=[0, 1])
                               for fn in glob.glob(os.path.join(association_dir,
-                                                               '*.fassoc.tsv'))
+                                                               '*.f*.tsv'))
                               ])
             self.f_estimator_df = create_estimator_df(f_df)
 
             b_df = pd.concat([pd.read_table(fn, index_col=[0, 1, 2])
                              for fn in glob.glob(os.path.join(association_dir, 
-                                                              '*.bassoc.tsv'))
+                                                              '*.b*.tsv'))
                              ])
             b_df['value'] = b_df['value'].astype(float)
             self.b_df = b_df
@@ -782,3 +790,111 @@ class Power():
         return estimator_df
 
 
+class Analysis():
+    def __init__(self, powers):
+        self.powers = powers
+        self.auc = self.calculate_auc()
+        self.recall = self.calculate_recall_at_fdr()
+
+
+    def calculate_auc(self, aggregated=False):
+        auc_dict = {}
+        for p_type, power in self.powers.items():
+            estimator_df = pd.concat([power.f_estimator_df, power.bf_estimator_df])
+            estimators = estimator_df['estimator'].unique()
+            for estimator in ['OLS-ElasticNet', 'OLS-Mean', 'MI-Bootstrapped', 'RC-hetero-bootstrapped',
+                              'MeasurementErrorBF', 'TwoStageBF']:
+                    pr_df = estimator_df[estimator_df['estimator'] == estimator]
+                    auc = np.trapz(pr_df['precision'], pr_df['recall'])
+                    auc_dict[(p_type) + tuple([estimator])] = auc
+        
+            if aggregated:
+                pass
+
+        auc_df = pd.DataFrame.from_dict(auc_dict, orient='index')
+        auc_df.index = pd.MultiIndex.from_tuples(auc_df.index)
+        return auc_df
+
+    def _add_rank(power):
+        for df in [power.bf_estimator_df,
+                   power.dic_estimator_df,
+                   power.waic_estimator_df,
+                   power.zscore_estimator_df,
+                   power.f_estimator_df]:
+            for estimator in df.estimator.unique():
+                 estimator_df = df[df.estimator == estimator]
+                 df.loc[df.estimator == estimator, 'rank'] = range(1, len(estimator_df)+1)
+        
+    def calculate_recall_at_fdr(self, aggregated=False,
+                                fdr=0.05):
+        recall_dict = {}
+        for p_type, power in self.powers.items():
+            estimator_df = pd.concat([power.f_estimator_df, power.bf_estimator_df])
+            estimators = estimator_df['estimator'].unique()
+            for estimator in ['OLS-ElasticNet', 'OLS-Mean', 'MI-Bootstrapped', 'RC-hetero-bootstrapped',
+                              'MeasurementErrorBF', 'TwoStageBF']:
+                    pr_df = estimator_df[estimator_df['estimator'] == estimator]
+                    recall = pr_df[pr_df['fdr'] <= fdr]['recall'].max()
+                    recall_dict[(p_type) + tuple([estimator])] = recall
+
+            if aggregated:
+                pass
+
+        recall_df = pd.DataFrame.from_dict(recall_dict, orient='index')
+        recall_df.index = pd.MultiIndex.from_tuples(recall_df.index)
+        return recall_df    
+
+    def calculate_recall_np(self, fdr_cutoff=0.05, bf=20):
+        '''
+        Calculate recall using standard procedure of calculating
+        Benjamini-hochberg correction or selecting based on a BF threshold.
+        '''
+
+        recall_dict = {}
+        for p_type, power in self.powers.items():
+            df = power.f_estimator_df
+            for estimator in ['OLS-ElasticNet', 'OLS-Mean', 'MI-Bootstrapped', 'RC-hetero-bootstrapped']:
+                fdr = smmc.multipletests(df[df.estimator == estimator]['pvalue'], method='fdr_bh', alpha=fdr_cutoff)
+                try:
+                    recall = df[df.estimator == estimator][fdr[0]].ix[-1]['recall']
+                    fdr = df[df.estimator == estimator][fdr[0]].ix[-1]['fdr']
+                except IndexError:
+                    recall, fdr = 0, 0
+                recall_dict[(p_type) + tuple([estimator])] = [recall, fdr]
+
+            df = power.bf_estimator_df
+            for estimator in ['MeasurementErrorBF', 'TwoStageBF']:
+                estimator_df = df[(df.estimator == estimator) & (df['value'] > bf)]
+                try:
+                    recall = estimator_df.ix[-1]['recall']
+                    fdr = estimator_df.ix[-1]['fdr'].max()
+                except IndexError:
+                    recall, fdr = 0, 0
+                recall_dict[(p_type) + tuple([estimator])] = [recall, fdr]
+
+        recall_df = pd.DataFrame.from_dict(recall_dict, orient='index')
+        recall_df.index = pd.MultiIndex.from_tuples(recall_df.index)
+        recall_df.columns = ['Recall', 'FDR']
+        return recall_df
+
+
+    # def _aggregate_bayesian(power):
+    #     waic_bf_rank = pd.concat([#waic_bf_rank,
+    #                               power.bf_estimator_df,
+    #                               power.zscore_estimator_df[['rank']],
+    #                               #power.dic_estimator_df[['rank']]
+    #                              ],
+    #                               axis=1)
+    #     waic_bf_rank['avg_rank'] = waic_bf_rank['rank'].mean(axis=1)
+    #     waic_bf_rank = waic_bf_rank.set_index(['estimator', waic_bf_rank.index])
+    #     waic_bf_estimator_df = power._calculate_estimator_df(waic_bf_rank, 'MeasurementErrorBF', lambda x: x.sort_values('avg_rank'))
+
+    # def _aggregate_frequentist(power):
+    #     rc_mi_ols_rank = power.f_estimator_df[power.f_estimator_df.estimator == 'RC-hetero-bootstrapped'][['rank']]
+    #     rc_mi_ols_rank = pd.concat([rc_mi_ols_rank,
+    #                               power.f_estimator_df[power.f_estimator_df.estimator == 'MI-Bootstrapped'][['rank']],
+    #                               power.f_estimator_df[power.f_estimator_df.estimator == 'OLS-ElasticNet']],
+    #                               axis=1)
+    #     rc_mi_ols_rank['avg_rank'] = rc_mi_ols_rank['rank'].mean(axis=1)
+    #     rc_mi_ols_rank = rc_mi_ols_rank.set_index(['estimator', rc_mi_ols_rank.index])
+    #     rc_mi_ols_rank = power._calculate_estimator_df(rc_mi_ols_rank, 'OLS-ElasticNet', lambda x: x.sort_values('avg_rank'))
