@@ -8,4 +8,9 @@ setup(name='mediator_was',
       author_email='kbhutani@ucsd.edu',
       license='MIT',
       packages=find_packages(),
+      entry_points={
+          'console_scripts': [
+              'mediator-was-wtccc=mediator_was.processing.wtccc:fit'
+          ]
+      },
       zip_safe=False)
