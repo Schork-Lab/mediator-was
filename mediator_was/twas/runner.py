@@ -1,6 +1,7 @@
 import os
 import sys
 import mediator_was.twas as T
+import mediator_was.twas.bare as TBare
 import glob
 import pandas as pd
 
@@ -20,7 +21,7 @@ def calc_r2(gene_dir, gtex=True, rlog=True):
     return
 
 def associate(gene_dir, study_prefix, out_prefix,
-              gtex=True, rlog=True):
+              gtex=True, rlog=True,):
     study = T.Study(study_prefix)
     if gtex:
       try:
@@ -38,6 +39,26 @@ def associate(gene_dir, study_prefix, out_prefix,
       association = T.Association(gene, study)
       association.save(out_prefix+'.rlog')      
     return
+
+def associate_bare(gene_dir, study_prefix, out_prefix,
+              gtex=True, rlog=True,):
+    study = TBare.Study(study_prefix)
+    if gtex:
+      try:
+        gene = TBare.Gene(gene_dir)
+        association = TBare.Association(gene, study)
+        association.save(out_prefix+'.gtex')
+        del association
+        del gene
+      except:
+        pass
+    if rlog:
+      gene = TBare.Gene(gene_dir, gtex=False)
+      association = TBare.Association(gene, study)
+      association.save(out_prefix+'.rlog')      
+    return
+
+
 
 def aggregate(association_dir, prefix=''):
     def reader(fn):
@@ -76,7 +97,7 @@ if __name__ == "__main__":
     else:
         if sys.argv[1] == "associate":
             print('Associating {} to {}'.format(sys.argv[2], sys.argv[3]))
-            associate(sys.argv[2], sys.argv[3], sys.argv[4])
+            associate_bare(sys.argv[2], sys.argv[3], sys.argv[4])
         elif sys.argv[1] == "aggregate":
             print('Running aggregate for {}'.format(sys.argv[2]))
             aggregate(sys.argv[2], sys.argv[3])
