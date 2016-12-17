@@ -106,17 +106,10 @@ class BayesianModel(object):
     Adapted from Thomas Wiecki
     https://github.com/pymc-devs/pymc3/issues/511#issuecomment-125935523
 
-    Attributes:
-        cached_model (TYPE): Description
-        k_folds (TYPE): Description
-        mb (TYPE): Description
-        minibatches (TYPE): Description
-        shared_vars (TYPE): Description
-        trace (TYPE): Description
-        variational (TYPE): Description
     '''
 
-    def __init__(self, variational=True, mb=False, n_chain=50000,
+    def __init__(self, variational=True, mb=False,
+                 n_chain=50000, n_trace=5000,
                  logistic=False, steps=None):
         """
         Args:
@@ -127,8 +120,10 @@ class BayesianModel(object):
         self.cached_model = None
         self.mb = mb
         self.n_chain = n_chain
+        self.n_trace = n_trace
         self.logistic = logistic
-        self.steps = None
+        self.steps = steps
+
 
     def cache_model(self, **inputs):
         """
@@ -200,7 +195,7 @@ class BayesianModel(object):
         self.trace = self._inference()
         return self.trace
 
-    def _inference(self, n_trace=5000):
+    def _inference(self, n_trace=None):
         """
         Perform the inference. Uses ADVI if self.variational
         is True. Also, uses minibatches is self.mb=True based
@@ -213,6 +208,10 @@ class BayesianModel(object):
         Returns:
             trace: Trace of the PyMC3 inference
         """
+        if n_trace is None:
+            n_trace = self.n_trace
+
+        print(n_trace)
         with self.cached_model:
             if self.variational:
                 if self.mb:
@@ -270,6 +269,10 @@ class BayesianModel(object):
         return self.cv_traces, self.cv_stats
 
     def calculate_ppc(self, trace):
+        """
+        Calculate several post-predictive checks
+        based on the trace.
+        """
         dic = pm.stats.dic(trace, self.cached_model)
         waic, log_py, logp = calculate_waic(trace, self.cached_model)
         #loo = calculate_loo(log_py=log_py)
@@ -304,6 +307,16 @@ class BayesianModel(object):
                 'sd': sd,
                 'zscore': zscore}
 
+    def calculate_bf(self, trace, var_name='mediator_model'):
+        '''
+        Calculate Bayes Factor using a Bernoulli variable in the 
+        trace.
+        '''
+        p_alt = trace[var_name].mean()
+        bayes_factor = (p_alt/(1-p_alt))
+        return bayes_factor
+
+
     def _logp(self, trace, **inputs):
         """
         Calculate log likelihood using Monte Carlo integration.
@@ -332,9 +345,6 @@ class BayesianModel(object):
     def _mse(self, trace, **inputs):
         """
         Calculate mean squared error of the model fit.
-
-        TODO: confirm that it's okay to take mean across the steps
-              of the trace.
         Args:
             **inputs (dict): inputs used in likelhood calculation
             trace (PyMC3.trace): Trace of the inference chain
@@ -354,10 +364,10 @@ class BayesianModel(object):
 
     def _mse2(self, trace, **inputs):
         """
-        Calculate mean squared error of the model fit.
+        Calculate mean squared error of the model fit 
+        using posterior means of beta_med instead of
+        sampling from it.
 
-        TODO: confirm that it's okay to take mean across the steps
-              of the trace.
         Args:
             **inputs (dict): inputs used in likelhood calculation
             trace (PyMC3.trace): Trace of the inference chain
@@ -576,6 +586,14 @@ class Joint(BayesianModel):
 
     def _create_model_prior(self, med_gen, med_phen,
                             gwas_gen, gwas_phen):
+        """
+        Args:
+            med_gen (pandas.DataFrame): Mediator genotypes
+            med_phen (pandas.DataFrame): Mediator phenotypes
+            gwas_gen (pandas.DataFrame): GWAS genotypes
+            gwas_phen (pandas.DataFrame): GWAS phenotypes
+
+        """
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
@@ -614,6 +632,14 @@ class Joint(BayesianModel):
 
     def _create_model_horseshoe(self, med_gen, med_phen,
                                 gwas_gen, gwas_phen):
+        """
+        Args:
+            med_gen (pandas.DataFrame): Mediator genotypes
+            med_phen (pandas.DataFrame): Mediator phenotypes
+            gwas_gen (pandas.DataFrame): GWAS genotypes
+            gwas_phen (pandas.DataFrame): GWAS phenotypes
+
+        """
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
@@ -667,8 +693,6 @@ class Joint(BayesianModel):
             gwas_gen (pandas.DataFrame): GWAS genotypes
             gwas_phen (pandas.DataFrame): GWAS phenotypes
 
-        Returns:
-            pymc3.Model(): The Bayesian model
         """
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
@@ -882,7 +906,7 @@ class MeasurementError(BayesianModel):
             phen = pm.Normal('phen',
                              mu=phenotype_mu,
                              sd=phenotype_sigma,
-                             observed=gwas_phen)
+                             observed=gwas_phen) 
 
         if self.variational and self.mb:
             self.minibatch_RVs = [phen]
