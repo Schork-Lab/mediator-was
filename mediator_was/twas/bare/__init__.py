@@ -238,7 +238,7 @@ class Association():
         alleles = loci.apply(_get_alleles, axis=1)
         alleles = alleles[~alleles.isnull()]
         if len(alleles) == 0:
-            raise Exception("No matching alleles between study and gene elasticnet models.")
+            raise ValueError("No matching alleles between study and gene elasticnet models.")
         self.loci = list(alleles.index)
         self.gwas_gen = pd.DataFrame([np.array(x) for x in alleles],
                                      index=self.loci).T
@@ -283,9 +283,9 @@ class Association():
         intra_var = self.pred_expr[bootstraps].var(axis=1, ddof=1).mean()
         print('Intra-variance: {}'.format(intra_var))
         print('Inter-variance: {}'.format(inter_var))
-        if inter_var > intra_var:
-            self._frequentist(self.pred_expr)
-            self._bayesian(self.pred_expr)
+        #if inter_var > intra_var:
+        self._frequentist(self.pred_expr)
+        self._bayesian(self.pred_expr)
         return
 
     def _bayesian(self, pred_expr,  min_inclusion=0.5):

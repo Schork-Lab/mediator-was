@@ -50,12 +50,17 @@ def associate_bare(gene_dir, study_prefix, out_prefix,
         association.save(out_prefix+'.gtex')
         del association
         del gene
-      except:
-        pass
+      except ValueError:
+        with open(out_prefix+".gtex.notfound", "w"):
+          OUT.write("No matching alleles found between GWAS and Trained Models")
     if rlog:
-      gene = TBare.Gene(gene_dir, gtex=False)
-      association = TBare.Association(gene, study)
-      association.save(out_prefix+'.rlog')      
+      try:
+        gene = TBare.Gene(gene_dir, gtex=False)
+        association = TBare.Association(gene, study)
+        association.save(out_prefix+'.rlog')   
+      except ValueError:
+        with open(out_prefix+".rlog.notfound", "w"):
+          OUT.write("No matching alleles found between GWAS and Trained Models")   
     return
 
 
