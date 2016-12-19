@@ -1,9 +1,9 @@
 
-"""Compute TWAS p-values, corrected for prediction error
+"""
+Compute Frequentist statistics for regression models with uncertainty
 
-Author: Abhishek Sarkar <aksarkar@mit.edu>
-        Kunal Bhutani   <kunalbhutani@gmail.com>
-
+Author: Kunal Bhutani   <kunalbhutani@gmail.com>
+        Abhishek Sarkar <aksarkar@mit.edu>
 """
 from __future__ import print_function
 import math
@@ -28,15 +28,6 @@ def standardize(values, center=True, unit_variance=True):
     if unit_variance:
         values = values / numpy.std(values)
     return values
-
-
-def gwas(genotypes, phenotype):
-    """Compute the best GWAS p-value in the locus"""
-    if len(genotypes.shape) == 1:
-        return t(genotypes, phenotype, method="OLS")[2]
-    else:
-        return min(t(g, phenotype, method="OLS")[2] for g in genotypes.T)
-
 
 def _weighted_moment_estimator(expression, phenotype, sigma_u):
     '''
@@ -318,6 +309,7 @@ def multiple_imputation(expression, phenotype):
     """
     association_df = pd.DataFrame(numpy.apply_along_axis(lambda x: t(x, phenotype), 1, expression))
     association_df.columns = ['coeff', 'se', 'pvalue']
+    associate_df = association_df.dropna()
     coeff = association_df['coeff'].mean()
     W = association_df['coeff'].var(ddof=1)
     B = (association_df['se']**2).mean()
@@ -354,7 +346,10 @@ def t(expression, phenotype, sigma_u=None, method="OLS"):
     elif method == "OLS":
         design = statsmodels.tools.add_constant(expression)
         fit = statsmodels.api.OLS(phenotype, design).fit()
-        coeff, se = fit.params[1], fit.bse[1]
+        try:
+            coeff, se = fit.params[1], fit.bse[1]
+        except:
+            coeff, se = numpy.nan, numpy.nan
     elif method == "WLS":
         design = statsmodels.tools.add_constant(expression)
         sigma_u = numpy.sqrt(sigma_u)
