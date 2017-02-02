@@ -9,6 +9,7 @@ import pymc3 as pm
 import numpy as np
 from theano import shared
 from scipy.stats.distributions import pareto
+from scipy import optimize
 import theano.tensor as t
 
 
@@ -105,18 +106,11 @@ class BayesianModel(object):
     Adapted from Thomas Wiecki
     https://github.com/pymc-devs/pymc3/issues/511#issuecomment-125935523
 
-    Attributes:
-        cached_model (TYPE): Description
-        k_folds (TYPE): Description
-        mb (TYPE): Description
-        minibatches (TYPE): Description
-        shared_vars (TYPE): Description
-        trace (TYPE): Description
-        variational (TYPE): Description
     '''
 
-    def __init__(self, variational=True, mb=False, n_chain=50000,
-                 logistic=False):
+    def __init__(self, variational=True, mb=False,
+                 n_chain=50000, n_trace=5000,
+                 logistic=False, steps=None):
         """
         Args:
             variational (bool, optional): Use Variational Inference
@@ -126,7 +120,10 @@ class BayesianModel(object):
         self.cached_model = None
         self.mb = mb
         self.n_chain = n_chain
+        self.n_trace = n_trace
         self.logistic = logistic
+        self.steps = steps
+
 
     def cache_model(self, **inputs):
         """
@@ -198,7 +195,7 @@ class BayesianModel(object):
         self.trace = self._inference()
         return self.trace
 
-    def _inference(self, n_trace=5000):
+    def _inference(self, n_trace=None):
         """
         Perform the inference. Uses ADVI if self.variational
         is True. Also, uses minibatches is self.mb=True based
@@ -211,6 +208,10 @@ class BayesianModel(object):
         Returns:
             trace: Trace of the PyMC3 inference
         """
+        if n_trace is None:
+            n_trace = self.n_trace
+
+        print(n_trace)
         with self.cached_model:
             if self.variational:
                 if self.mb:
@@ -223,9 +224,14 @@ class BayesianModel(object):
                 trace = pm.variational.sample_vp(v_params, draws=n_trace)
                 self.v_params = v_params
             else:
-                start = pm.find_MAP()
-                trace = pm.sample(self.n_chain, step=pm.Metropolis(),
-                                  start=start, progressbar=True)
+                if self.steps is None:
+                    self.steps = pm.Metropolis()
+                start = pm.find_MAP(fmin=optimize.fmin_powell)
+                trace = pm.sample(self.n_chain,
+                                  step=self.steps,
+                                  start=start,
+                                  progressbar=True,
+                                  )
                 trace = trace[-n_trace:]
         self.trace = trace
         return trace
@@ -263,6 +269,10 @@ class BayesianModel(object):
         return self.cv_traces, self.cv_stats
 
     def calculate_ppc(self, trace):
+        """
+        Calculate several post-predictive checks
+        based on the trace.
+        """
         dic = pm.stats.dic(trace, self.cached_model)
         waic, log_py, logp = calculate_waic(trace, self.cached_model)
         #loo = calculate_loo(log_py=log_py)
@@ -297,6 +307,16 @@ class BayesianModel(object):
                 'sd': sd,
                 'zscore': zscore}
 
+    def calculate_bf(self, trace, var_name='mediator_model'):
+        '''
+        Calculate Bayes Factor using a Bernoulli variable in the 
+        trace.
+        '''
+        p_alt = trace[var_name].mean()
+        bayes_factor = (p_alt/(1-p_alt))
+        return bayes_factor
+
+
     def _logp(self, trace, **inputs):
         """
         Calculate log likelihood using Monte Carlo integration.
@@ -325,9 +345,6 @@ class BayesianModel(object):
     def _mse(self, trace, **inputs):
         """
         Calculate mean squared error of the model fit.
-
-        TODO: confirm that it's okay to take mean across the steps
-              of the trace.
         Args:
             **inputs (dict): inputs used in likelhood calculation
             trace (PyMC3.trace): Trace of the inference chain
@@ -347,10 +364,10 @@ class BayesianModel(object):
 
     def _mse2(self, trace, **inputs):
         """
-        Calculate mean squared error of the model fit.
+        Calculate mean squared error of the model fit 
+        using posterior means of beta_med instead of
+        sampling from it.
 
-        TODO: confirm that it's okay to take mean across the steps
-              of the trace.
         Args:
             **inputs (dict): inputs used in likelhood calculation
             trace (PyMC3.trace): Trace of the inference chain
@@ -374,13 +391,13 @@ class BayesianModel(object):
         zscore = mean / sd
         return mean, sd, zscore
 
-    def _mb_generator(self, data):
+    def _mb_generator(self, data, size=500):
         """
         Generator for minibatches
         """
         rng = np.random.RandomState(0)
         while True:
-            ixs = rng.randint(len(data), size=500)
+            ixs = rng.randint(len(data), size=size)
             yield data[ixs]
 
 
@@ -445,6 +462,82 @@ class TwoStage(BayesianModel):
             self.minibatch_tensors = [gwas_gen, gwas_phen]
         return phenotype_model
 
+class TwoStageBF(BayesianModel):
+    """
+    Two Stage Inference.
+
+    First stage: Bootstrapped ElasticNet
+    Second stage: Use loci that were learned in the first stage
+                  and their mean and std as priors for a simple
+                  Bayesian Linear Regression
+
+    Attributes:
+
+    """
+    def __init__(self, coef_mean, coef_sd, p_sigma_beta=10,
+                 *args, **kwargs):
+        """
+        Args:
+
+        """
+        self.name = 'TwoStageBF'
+        self.cv_vars = ['gwas_phen', 'gwas_gen']
+        self.vars = {'coef_mean': coef_mean,
+                     'coef_sd': coef_sd,
+                     'p_sigma_beta': p_sigma_beta}
+        super(TwoStageBF, self).__init__(*args, **kwargs)
+
+    def create_model(self, gwas_gen, gwas_phen):
+        """
+        Simple Bayesian Linear Regression
+
+        Args:
+            gwas_gen (pandas.DataFrame): GWAS genotypes
+            gwas_phen (pandas.DataFrame): GWAS phenotypes
+
+        Returns:
+            pymc3.Model(): The Bayesian model
+        """
+        n_ind, n_snps = gwas_gen.eval().shape
+        with pm.Model() as phenotype_model:
+            beta_med = pm.Normal('beta_med',
+                                 mu=self.vars['coef_mean'],
+                                 sd=self.vars['coef_sd'],
+                                 shape=(1, n_snps))
+            
+            mediator = pm.dot(beta_med, gwas_gen.T)
+            intercept = pm.Normal('intercept', mu=0, sd=1)
+            alpha = pm.Normal('alpha', mu=0, sd=1)
+            phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
+                                beta=self.vars['p_sigma_beta'])
+            
+
+            # Model Selection
+            p = np.array([0.5, 0.5])
+            mediator_model = pm.Bernoulli('mediator_model', p[1])
+
+            # Model 1
+            phenotype_mu_null = intercept
+
+            # Model 2
+            phenotype_mu_mediator = intercept + alpha * mediator
+
+            phen = pm.DensityDist('phen',
+                                lambda value: pm.switch(mediator_model, 
+                                    pm.Normal.dist(mu=phenotype_mu_mediator, sd=phenotype_sigma).logp(value), 
+                                    pm.Normal.dist(mu=phenotype_mu_null, sd=phenotype_sigma).logp(value)
+                                ),
+                                observed=gwas_phen)
+            self.steps = [pm.BinaryGibbsMetropolis(vars=[mediator_model]),
+                          pm.Metropolis()]
+
+            
+        if self.variational and self.mb:
+            self.minibatch_RVs = [phen]
+            self.minibatch_tensors = [gwas_gen, gwas_phen]
+        return phenotype_model
+
+
 
 class Joint(BayesianModel):
     """
@@ -493,6 +586,14 @@ class Joint(BayesianModel):
 
     def _create_model_prior(self, med_gen, med_phen,
                             gwas_gen, gwas_phen):
+        """
+        Args:
+            med_gen (pandas.DataFrame): Mediator genotypes
+            med_phen (pandas.DataFrame): Mediator phenotypes
+            gwas_gen (pandas.DataFrame): GWAS genotypes
+            gwas_phen (pandas.DataFrame): GWAS phenotypes
+
+        """
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
@@ -500,7 +601,10 @@ class Joint(BayesianModel):
                                  mu=self.vars['coef_mean'],
                                  sd=self.vars['coef_sd'],
                                  shape=(1, n_snps))
-            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1)
+            mediator_mu = mediator_intercept + pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
             mediator = pm.Normal('mediator',
@@ -528,6 +632,14 @@ class Joint(BayesianModel):
 
     def _create_model_horseshoe(self, med_gen, med_phen,
                                 gwas_gen, gwas_phen):
+        """
+        Args:
+            med_gen (pandas.DataFrame): Mediator genotypes
+            med_phen (pandas.DataFrame): Mediator phenotypes
+            gwas_gen (pandas.DataFrame): GWAS genotypes
+            gwas_phen (pandas.DataFrame): GWAS phenotypes
+
+        """
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
@@ -544,7 +656,10 @@ class Joint(BayesianModel):
                                  mu=0,
                                  tau=1 / total_variance,
                                  shape=(1, n_snps))
-            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1)
+            mediator_mu = mediator_intercept + pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
             mediator = pm.Normal('mediator',
@@ -578,14 +693,15 @@ class Joint(BayesianModel):
             gwas_gen (pandas.DataFrame): GWAS genotypes
             gwas_phen (pandas.DataFrame): GWAS phenotypes
 
-        Returns:
-            pymc3.Model(): The Bayesian model
         """
         n_snps = gwas_gen.eval().shape[1]
         with pm.Model() as phenotype_model:
             # Expression
             beta_med = pm.Laplace('beta_med', mu=0, b=1, shape=(1, n_snps),)
-            mediator_mu = pm.dot(beta_med, med_gen.T)
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1)
+            mediator_mu = mediator_intercept + pm.dot(beta_med, med_gen.T)
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'])
             mediator = pm.Normal('mediator',
@@ -661,14 +777,20 @@ class MultiStudyMultiTissue(BayesianModel):
 
         with pm.Model() as phenotype_model:
             # Expression
+            
             beta_med = pm.Laplace('beta_med',
                                   mu=0,
                                   b=self.vars['m_laplace_beta'],
                                   shape=(1, n_snps),)
-            mediator_gamma = pm.HalfCauchy('mediator_gamma',
-                                           beta=1,
+            mediator_intercept = pm.Normal('mediator_intercept',
+                                           mu=0,
+                                           sd=1,
                                            shape=n_tissues)
-            mediator_mu = mediator_gamma[self.med_idx] * pm.dot(beta_med, med_gen.T)            
+            mediator_gamma = pm.Uniform('mediator_gamma',
+                                        lower=0,
+                                        upper=1,
+                                        shape=n_tissues)
+            mediator_mu = mediator_intercept[self.med_idx] + mediator_gamma[self.med_idx] * pm.dot(beta_med, med_gen.T)            
             mediator_sigma = pm.HalfCauchy('mediator_sigma',
                                            beta=self.vars['m_sigma_beta'],
                                            shape=n_tissues)
@@ -684,11 +806,13 @@ class MultiStudyMultiTissue(BayesianModel):
             # alpha = pm.Uniform('alpha', -10, 10)
             phenotype_expression_mu = pm.dot(beta_med, gwas_gen.T)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
-                                            beta=1)
-            phenotype_mu = intercept[self.gwas_idx] + alpha[self.gwas_idx] * phenotype_expression_mu
+                                            beta=1,
+                                            shape=n_studies)
+            phen_mu = intercept[self.gwas_idx] + alpha[self.gwas_idx] * phenotype_expression_mu
+            phen_sigma = phenotype_sigma[self.gwas_idx]
             phen = pm.Normal('phen',
-                             mu=phenotype_mu,
-                             sd=phenotype_sigma,
+                             mu=phen_mu,
+                             sd=phen_sigma,
                              observed=gwas_phen)
 
         if self.variational and self.mb:
@@ -752,7 +876,7 @@ class MeasurementError(BayesianModel):
                  mediator_sd,
                  m_laplace_beta=1,
                  p_sigma_beta=10, *args, **kwargs):
-        self.name = 'NonMediated'
+        self.name = 'MeasurementError'
         self.cv_vars = ['gwas_phen', 'gwas_gen']
         self.vars = {'mediator_mu': mediator_mu,
                      'mediator_sd': mediator_sd,
@@ -771,16 +895,18 @@ class MeasurementError(BayesianModel):
             mediator_meas = pm.Normal('mediator_meas',
                                       mu=mediator,
                                       sd=gwas_error,
-                                      shape=n_samples)
+                                      shape=n_samples,
+                                      observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Uniform('alpha', -10, 10)
+            alpha = pm.Uniform('alpha', lower=-10, upper=10)
+            #alpha = pm.Normal('alpha', mu=0, sd=1)
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
             phenotype_mu = intercept + alpha * mediator
             phen = pm.Normal('phen',
                              mu=phenotype_mu,
                              sd=phenotype_sigma,
-                             observed=gwas_phen)
+                             observed=gwas_phen) 
 
         if self.variational and self.mb:
             self.minibatch_RVs = [phen]
@@ -797,23 +923,22 @@ class MeasurementErrorBF(BayesianModel):
     def __init__(self,
                  mediator_mu,
                  mediator_sd,
-                 m_laplace_beta=1,
+                 precomp_med=True,
+                 heritability=0.1,
                  p_sigma_beta=10, *args, **kwargs):
-        self.name = 'NonMediated'
+        self.name = 'MeasurementErrorBF'
         self.cv_vars = ['gwas_phen', 'gwas_gen']
         self.vars = {'mediator_mu': mediator_mu,
                      'mediator_sd': mediator_sd,
+                     'heritability': heritability,
                      'p_sigma_beta': p_sigma_beta,
+                     'precomp_med': precomp_med,
                      }
         super(MeasurementErrorBF, self).__init__(*args, **kwargs)
 
     def create_model(self, gwas_mediator, gwas_phen, gwas_error):
         n_samples = gwas_mediator.eval().shape[0]
         with pm.Model() as phenotype_model:
-
-            # Model Selection
-            p = np.array([0.5, 0.5])
-            mediator_model = pm.Bernoulli('mediator_model', p[1])
 
             # Mediator
             mediator = pm.Normal('mediator',
@@ -823,24 +948,48 @@ class MeasurementErrorBF(BayesianModel):
             mediator_meas = pm.Normal('mediator_meas',
                                       mu=mediator,
                                       sd=gwas_error,
-                                      shape=n_samples)
+                                      shape=n_samples,
+                                      observed=gwas_mediator)
             intercept = pm.Normal('intercept', mu=0, sd=1)
-            alpha = pm.Uniform('alpha', -10, 10)
+
             phenotype_sigma = pm.HalfCauchy('phenotype_sigma',
                                             beta=self.vars['p_sigma_beta'])
-            
+
+            if self.vars['precomp_med']:
+                p_var = t.sqr(phenotype_sigma)
+                h = self.vars['heritability']
+                var_explained = (p_var*h)/(1-h)
+                md_var = np.square(np.mean(self.vars['mediator_sd']))
+                md_mean_sq = np.square(np.mean(self.vars['mediator_mu'])) 
+                var_alpha = var_explained/(md_var + md_mean_sq)
+                alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
+            else:
+                p_var = t.sqr(phenotype_sigma)
+                h = self.vars['heritability']
+                var_explained = (p_var*h)/(1-h)
+                md_var = t.var(mediator)
+                md_mean_sq = t.sqr(t.mean(mediator))
+                var_alpha = var_explained/(md_var + md_mean_sq)
+                alpha = pm.Normal('alpha', mu=0, sd=t.sqrt(var_alpha))
+ 
+            # Model Selection
+            p = np.array([0.5, 0.5])
+            mediator_model = pm.Bernoulli('mediator_model', p[1])
+
             # Model 1
-            phenotype_mu_m1 = intercept
+            phenotype_mu_null = intercept
 
             # Model 2
-            phenotype_mu_m2 = intercept + alpha * mediator
+            phenotype_mu_mediator = intercept + alpha * mediator
 
             phen = pm.DensityDist('phen',
                                 lambda value: pm.switch(mediator_model, 
-                                    pm.Normal.dist(mu=phenotype_mu_m1, sd=phenotype_sigma).logp(value), 
-                                    pm.Normal.dist(mu=phenotype_mu_m2, sd=phenotype_sigma).logp(value)
+                                    pm.Normal.dist(mu=phenotype_mu_mediator, sd=phenotype_sigma).logp(value), 
+                                    pm.Normal.dist(mu=phenotype_mu_null, sd=phenotype_sigma).logp(value)
                                 ),
                                 observed=gwas_phen)
+            self.steps = [pm.BinaryGibbsMetropolis(vars=[mediator_model]),
+                          pm.Metropolis()]
 
         if self.variational and self.mb:
             self.minibatch_RVs = [phen]
