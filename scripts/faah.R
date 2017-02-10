@@ -1,21 +1,21 @@
 library(dplyr)
-library(ggbio)
 library(ggplot2)
 library(reshape2)
 library(Cairo)
 
 library(frea)
 
-bayesian <- (read.delim('/home/unix/aksarkar/incoming/FAAH/FAAH.bayesian_prior_and_posterior.tsv') %>%
+setwd('/broad/hptmp/aksarkar/FAAH')
+
+bayesian <- (read.delim('FAAH.bayesian_prior_and_posterior.tsv') %>%
              dplyr::group_by(position) %>%
-             dplyr::do(data.frame(position=rep(.$position, length.out=2), variable=c('Prior', 'Posterior'), y=rbind(.$prior_mean, .$prior_sd), sd=rbind(.$prior_sd, .$sd))) %>%
+             dplyr::do(data.frame(position=rep(.$position, length.out=2), variable=c('Prior', 'Posterior'), y=rbind(.$prior_mean, .$mean), sd=rbind(.$prior_sd, .$sd))) %>%
              dplyr::select(position, variable, y=y, sd=sd) %>%
              dplyr::mutate(ymin=y - sd, ymax=y + sd, method='bayesian'))
-enet <- (read.delim('/home/unix/aksarkar/incoming/FAAH/FAAH.elasticnet.tsv') %>%
+enet <- (read.delim('FAAH.elasticnet.tsv') %>%
          dplyr::select(position, variable=bootstrap, value=beta) %>%
          dplyr::filter(variable == 'full') %>%
-         dplyr::select(position, variable, y=value)
-models <- rbind(bayesian, enet)
+         dplyr::select(position, variable, y=value))
 
 locus_plot <- (ggplot(bayesian, aes(x=position, y=y, color=factor(variable))) +
                labs(y='Estimated eQTL effect size', x='Position on chromosome 1',
@@ -28,27 +28,28 @@ locus_plot <- (ggplot(bayesian, aes(x=position, y=y, color=factor(variable))) +
                theme_nature +
                theme(panel.margin=unit(2, 'mm'),
                      legend.position='right'))
-Cairo(file='/broad/compbio/aksarkar/projects/mediator-was/faah-models.pdf', type='pdf', width=120, height=89, units='mm')
+Cairo(file='faah-models.pdf', type='pdf', width=120, height=89, units='mm')
 print(locus_plot)
 dev.off()
 
-liab <- (read.delim('/broad/hptmp/aksarkar/nwas/FAAH/FAAH.liab.tsv') %>%
+liab <- (read.delim('FAAH.liab.tsv') %>%
          dplyr::mutate(case=phen >= 3.09023230617))
-pred_expr <- (read.delim('/home/unix/aksarkar/incoming/FAAH/FAAH.predicted_expression.tsv') %>%
+expression_by_pheno <- (read.delim('FAAH.predicted_expression.tsv') %>%
               dplyr::select(X, prior, posterior) %>%
               reshape2::melt(c('X')) %>%
               dplyr::inner_join(., liab, by='X') %>%
               dplyr::group_by(variable, case) %>%
               dplyr::do(data.frame(variable=.$variable, case=.$case, x=.$value[order(.$value)], y=seq(1 / nrow(.), 1, 1/nrow(.)))))
-levels(pred_expr$variable) <- c('Prior', 'Posterior')
+levels(expression_by_pheno$variable) <- c('Prior', 'Posterior')
 
-cdf_plot <- (ggplot(pred_expr, aes(x, y, color=case)) +
+cdf_plot <- (ggplot(expression_by_pheno, aes(x, y, color=case)) +
         labs(x='Predicted expression', y='Cumulative fraction', color='CD') +
         geom_line() +
         facet_grid(variable ~ .) +
         theme_nature +
         theme(panel.margin=unit(2, 'mm'),
               legend.position='right'))
-Cairo(file='/broad/compbio/aksarkar/projects/mediator-was/faah-expr.pdf', type='pdf', width=89, height=40, units='mm')
+Cairo(file='faah-expr.pdf', type='pdf', width=89, height=40, units='mm')
 print(cdf_plot)
 dev.off()
+
