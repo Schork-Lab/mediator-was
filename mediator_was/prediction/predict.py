@@ -201,18 +201,12 @@ def stream(weight_file, genotype_file, genotype_filetype):
                 weights_ref, weights_alt = entry['ref'], entry['alt']
                 if not _is_match((gen_ref, gen_alt),
                                  (weights_ref, weights_alt)):
-                    # print('Non-matching reference and alt:', file=sys.stderr)
-                    # print(chrom, position, entry['rsid'], file=sys.stderr)
-                    # print('Genotype ref: {}, alt {}'.format(gen_ref, gen_alt), file=sys.stderr)
-                    # print('Weights ref: {}, alt {}'.format(weights_ref, weights_alt), file=sys.stderr)
-                    # See if order is switched 
                     if _is_match((gen_ref, gen_alt), _reverse(weights_ref, weights_alt)):
                         # print("Reverse strand at {}:{}".format(chrom, position), file=sys.stderr)
                         pass
                     elif _is_match((gen_alt, gen_ref), (weights_ref, weights_alt)):
                         # Switch the order
-                        #print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
-                        # Switch genotypes
+                        # print('Switching reference and alt at {}:{}, {}:{} and {}:{}'.format(chrom, position, gen_ref, gen_alt, weights_ref, weights_alt), file=sys.stderr)
                         data = parser(line, reverse=True)
                         alt_alleles = data[-1]
                     else:

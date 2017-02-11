@@ -18,7 +18,7 @@ def simulate_variance_ratio(in_file,
     for finding the added property of variance ratio in the fidelity
     of these tests with n=5000.
     '''
-    gene = plink.load(open(in_file, 'rb'))
+    gene = pickle.load(open(in_file, 'rb'))
     statistics = pd.DataFrame(None)
     for i in range(num_assoc):
         study = s.Study('test', [gene], pve=pve, seed=i)

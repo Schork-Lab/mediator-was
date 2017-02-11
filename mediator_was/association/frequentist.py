@@ -24,9 +24,9 @@ _chi2 = scipy.stats.chi2(1).sf
 
 def standardize(values, center=True, unit_variance=True):
     if center:
-        values = values - numpy.mean(values)
+        values -= numpy.mean(values)
     if unit_variance:
-        values = values / numpy.std(values)
+        values /= numpy.std(values)
     return values
 
 def _weighted_moment_estimator(expression, phenotype, sigma_u):
@@ -192,7 +192,7 @@ def _moment_estimator(expression, phenotype, sigma_u=None,
     return true expression and residuals if interested in
     model checking.
 
-    The algorithm is due to Fuller 1987, pp. 13-15
+    Fuller 1987, pp. 13-15
 
 
     """
@@ -309,7 +309,7 @@ def multiple_imputation(expression, phenotype):
     """
     association_df = pd.DataFrame(numpy.apply_along_axis(lambda x: t(x, phenotype), 1, expression))
     association_df.columns = ['coeff', 'se', 'pvalue']
-    associate_df = association_df.dropna()
+    associate_df = association_df.dropna() # If the bootstrap did not yield any estimates.
     coeff = association_df['coeff'].mean()
     W = association_df['coeff'].var(ddof=1)
     B = (association_df['se']**2).mean()

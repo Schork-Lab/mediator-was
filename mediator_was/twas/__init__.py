@@ -58,7 +58,8 @@ class Gene():
         self.chromosome = main_dir.split('/')[-2]  # Assumes no trailing /
         self._load_data()
         self._retrain()
-        self._calc_r2()
+        self._calc_r2_full()
+        self._calc_r2_cv()
         self._save()
         return
 
@@ -126,12 +127,14 @@ class Gene():
                 with open(param_fn, "w") as OUT:
                     OUT.write("L1 ratio: {} \n".format(self.alpha))
                     OUT.write("Alpha: {} \n".format(self.l1_ratio))
-       
-        if hasattr(self, 'r2'):
+                    if hasattr(self, 'r2'):
+                        OUT.write('R2: {}\n'.format(self.r2))
+        if hasattr(self, 'r2_cv'):
             r2_fn = os.path.join(self.main_dir,
                                 "{}.{}.r2.txt".format(self.name, label))
             with open(r2_fn, "w") as OUT:
-                OUT.write("\n".join([str(r2) for r2 in self.r2]))
+                OUT.write("\n".join([str(r2) for r2 in self.r2_cv]))
+
         return
 
     def _load_gtex_alleles(self):
@@ -192,13 +195,22 @@ class Gene():
             en_df, l1_ratio, alpha = None, None, None
         return phen_df, covariates_df, en_df, l1_ratio, alpha
 
-    def _calc_r2(self):
+    def _calc_r2_full(self):
+        model = self.elasticnet[self.elasticnet.bootstrap == 'full']
+        alleles = self.alleles[model['id']]
+        beta = model['beta'].values
+        pred_exp = alleles.values.dot(beta)
+        meas_exp = self.expression.values.flatten()
+        r2 = 1 - ((meas_exp - pred_exp)**2).sum()/((meas_exp-meas_exp.mean())**2).sum()
+        self.r2 = r2
+
+    def _calc_r2_cv(self):
         r2 = calculate_cv_r2(self.alleles,
                              self.covariates,
                              self.expression, 
                              self.l1_ratio, 
                              self.alpha)
-        self.r2 = r2
+        self.r2_cv = r2
 
 
 class Study():
@@ -404,9 +416,6 @@ class Association():
         Predict expression using ElasticNet bootstraps in
         gene.
 
-        Args:
-            gene (Gene): Description
-
         """
         pred_expr = []
         for bootstrap, df in gene.elasticnet.groupby('bootstrap'):
@@ -484,7 +493,7 @@ class Association():
         coef_mean = coefs.groupby('id')['beta'].mean().values
         coef_sd = coefs.groupby('id')['beta'].std(ddof=1).values
         ts_model = bay.TwoStageBF(coef_mean, coef_sd,
-                                variational=False, n_chain=25000)
+                                variational=False, n_chain=100000)
         ts_trace = ts_model.run(gwas_gen=self.gwas_gen[self.included_bay_snps].values,
                                 gwas_phen=phen)
         ts_stats = ts_model.calculate_ppc(ts_trace)
@@ -492,6 +501,7 @@ class Association():
         bayes_factor = (p_alt/(1-p_alt))
         ts_stats['bayes_factor'] = bayes_factor
         self.b_stats[ts_model.name] = ts_stats
+        self.b_traces[ts_model.name] = ts_trace
         del ts_model, ts_trace
 
         # Two Stage

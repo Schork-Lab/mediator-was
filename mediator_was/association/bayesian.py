@@ -211,7 +211,6 @@ class BayesianModel(object):
         if n_trace is None:
             n_trace = self.n_trace
 
-        print(n_trace)
         with self.cached_model:
             if self.variational:
                 if self.mb:
