@@ -10,7 +10,8 @@ setup(name='mediator_was',
       packages=find_packages(),
       entry_points={
           'console_scripts': [
-              'mediator-was-wtccc=mediator_was.processing.wtccc:fit'
+              'mediator-was-wtccc=mediator_was.processing.wtccc:fit',
+              'mediator-was-twas=mediator_was.twas.bare'
           ]
       },
       zip_safe=False)
