@@ -21,5 +21,5 @@ A python project for conducting mediator-wide association studies. Currently, li
 
 ## Usage
 
-mediator-was-twas --gene path_to_gene --study path_to_study_prefix --out out_file
+`mediator-was-twas --gene path_to_gene --study path_to_study_prefix --out out_file`
 
