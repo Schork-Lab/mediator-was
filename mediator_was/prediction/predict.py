@@ -117,7 +117,7 @@ def _parser_vcf(line, reverse=False, missing_filter=0.1):
             allele (None, optional): Description
         '''
         if genotype == '.':
-            alleles = {'.': 2}
+            alleles = {'.': 2, '1': 0, '0': 0}
         else:
             alleles = defaultdict(int)
             alleles[genotype[0]] += 1
