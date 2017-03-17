@@ -280,7 +280,6 @@ def stream(weight_file, genotype_file, genotype_filetype):
 
     # Prepare weights
     weights = pd.read_table(weight_file, sep="\t")
-    print(weights.columns)
     required_columns = set(['gene', 'beta',
                             'chromosome', 'position'])
     column_match = len(required_columns.intersection(weights.columns))
